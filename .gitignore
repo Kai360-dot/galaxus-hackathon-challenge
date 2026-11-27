@@ -39,3 +39,7 @@ final_images/
 img_*.jpg
 img_*.png
 labeling_guideline.*
+
+# Model outputs and predictions: derived from the competition data
+outputs/
+predictions/
