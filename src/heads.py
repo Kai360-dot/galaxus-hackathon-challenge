@@ -31,6 +31,18 @@ SYSTEM_PROMPT = (
     "You classify one product image of an online shop along six dimensions: what it shows, the background, "
     "the perspective, whether a real person or animal is present, the kind of text overlay and the text language."
 )
+
+
+def specific_prompt():
+    """The six atomic questions with their explained options, so the model knows what to look for."""
+    from atomic import question_text
+
+    questions = "\n\n".join(question_text(d) for d in common.DIMENSIONS)
+    return ("You classify one product image of an online shop by answering these six questions about it:\n\n"
+            + questions)
+
+
+PROMPTS = {"vague": lambda: SYSTEM_PROMPT, "specific": specific_prompt}
 DEFAULT_LAYERS = (8, 16, 24, 32)
 SHARD_SIZE = 500
 NO_CONTEXT_SHARE = 1 / 3
@@ -94,10 +106,10 @@ def vision_token_mask(input_ids, config):
     return mask | in_range
 
 
-def encode(processor, row, image, with_context):
+def encode(processor, row, image, with_context, system_prompt=SYSTEM_PROMPT):
     user_text = common.user_prompt(row, with_context) + "\n\nClassify this image." if with_context else "Classify this image."
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": user_text}]},
     ]
     text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False, enable_thinking=False)
@@ -105,9 +117,9 @@ def encode(processor, row, image, with_context):
 
 
 @torch.inference_mode()
-def image_features(model, processor, row, image, layers, with_context):
+def image_features(model, processor, row, image, layers, with_context, system_prompt=SYSTEM_PROMPT):
     """(layers, 2, hidden): per layer the last-token state and the mean over vision tokens, float16."""
-    inputs = encode(processor, row, image, with_context).to(model.device)
+    inputs = encode(processor, row, image, with_context, system_prompt).to(model.device)
     output = model(**inputs, output_hidden_states=True, logits_to_keep=1)
     vision = vision_token_mask(inputs["input_ids"][0], model.config)
     assert vision.sum() > 16, f"only {int(vision.sum())} vision tokens found"
@@ -123,7 +135,9 @@ def extract(arguments):
 
     parts = load_parts(arguments.data_dir)
     processor, model = load_model(arguments)
-    print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU", flush=True)
+    system_prompt = PROMPTS[arguments.prompt]()
+    print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU | prompt {arguments.prompt}, "
+          f"{len(processor.tokenizer(system_prompt)['input_ids'])} system tokens", flush=True)
     for part in arguments.parts:
         rows = parts[part] if arguments.limit == 0 else parts[part].head(arguments.limit)
         jobs = extraction_jobs(part, rows, arguments.mirror, arguments.no_context_share)
@@ -140,7 +154,8 @@ def extract(arguments):
                 shard, desc=f"{part} shard {shard_start // SHARD_SIZE}", mininterval=30
             ):
                 image = common.prepare_image(row["image_file"], arguments.image_size, mirrored=mirrored)
-                feature, vision_count = image_features(model, processor, row, image, arguments.layers, with_context)
+                feature, vision_count = image_features(model, processor, row, image, arguments.layers, with_context,
+                                                       system_prompt)
                 features.append(feature)
                 vision_counts.append(vision_count)
             np.savez(
@@ -316,6 +331,8 @@ def main():
     parser.add_argument("--image-size", type=int, default=512)
     parser.add_argument("--layers", type=int, nargs="+", default=list(DEFAULT_LAYERS))
     parser.add_argument("--parts", nargs="+", default=["holdout", "train", "dev"])
+    parser.add_argument("--prompt", choices=sorted(PROMPTS), default="vague",
+                        help="vague: one sentence naming the dimensions; specific: the six atomic questions")
     parser.add_argument("--limit", type=int, default=0, help="images per part, 0 for all (for quick tests)")
     parser.add_argument("--no-mirror", dest="mirror", action="store_false")
     parser.add_argument("--no-context-share", type=float, default=NO_CONTEXT_SHARE,

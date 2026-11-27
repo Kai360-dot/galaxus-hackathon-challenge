@@ -34,8 +34,8 @@ trap 'rm -f "$secrets"' EXIT
   echo "KAGGLE_CREDENTIALS_B64=$(base64 -w0 ~/.kaggle/credentials.json)"
 } > "$secrets"
 
-"$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE" \
-  --env COMMIT="$COMMIT" --env RESULTS_REPO="$RESULTS_REPO" --env IMAGE_SIZE="$IMAGE_SIZE" --env EPOCHS="$EPOCHS" --env EXTRA_ARGS="${EXTRA_ARGS:-}" \
+"$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}" \
+  --env COMMIT="$COMMIT" --env RESULTS_REPO="$RESULTS_REPO" --env IMAGE_SIZE="$IMAGE_SIZE" --env EPOCHS="$EPOCHS" --env PROMPT="${PROMPT:-vague}" --env EXTRA_ARGS="${EXTRA_ARGS:-}" \
   --secrets-file "$secrets" \
   pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel \
   bash -c "python -c \"import urllib.request as u; open('/tmp/job.sh', 'wb').write(u.urlopen(\

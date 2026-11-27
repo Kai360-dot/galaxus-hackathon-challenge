@@ -2,13 +2,16 @@
 # The heads pipeline end to end on a Hugging Face Job (one GPU): setup, Kaggle data, feature extraction in bf16,
 # heads, dev submission. Features and outputs go to a private HF dataset repo, never to this repository.
 #
-# Environment: COMMIT (of this repository), RESULTS_REPO (private dataset repo), IMAGE_SIZE (default 512).
+# Environment: COMMIT (of this repository), RESULTS_REPO (private dataset repo), IMAGE_SIZE (default 512),
+# PROMPT (vague or specific, default vague).
 # Secrets: HF_TOKEN (gated Apertus access, write access to RESULTS_REPO), KAGGLE_CREDENTIALS_B64
-# (base64 of ~/.kaggle/credentials.json). Launch with src/jobs/launch_heads_job.sh.
+# (base64 of ~/.kaggle/credentials.json). Launch with JOB=heads_job.sh src/jobs/launch_job.sh.
 set -euo pipefail
 REPO_URL=https://github.com/Kai360-dot/galaxus-hackathon-challenge.git
 : "${COMMIT:?}" "${RESULTS_REPO:?}" "${HF_TOKEN:?}" "${KAGGLE_CREDENTIALS_B64:?}"
 IMAGE_SIZE=${IMAGE_SIZE:-512}
+PROMPT=${PROMPT:-vague}
+RUN_NAME=heads_${IMAGE_SIZE}$([ "$PROMPT" = vague ] || echo "_$PROMPT")
 WORK=/work
 mkdir -p "$WORK" && cd "$WORK"
 step() { echo "[$(date -u +%H:%M:%S)] $*"; }
@@ -37,7 +40,7 @@ ls data
 step "extract features"
 cd repo
 python src/heads.py extract --data-dir "$WORK/data" --features-dir "$WORK/features" \
-  --quantization none --image-size "$IMAGE_SIZE" 2>&1 | grep --line-buffered -v "it/s\]"
+  --quantization none --image-size "$IMAGE_SIZE" --prompt "$PROMPT" 2>&1 | grep --line-buffered -v "it/s\]"
 
 step "fit heads"
 mkdir -p "$WORK/outputs"
@@ -49,8 +52,8 @@ python - <<PY
 from huggingface_hub import HfApi
 api = HfApi()
 api.upload_folder(repo_id="$RESULTS_REPO", repo_type="dataset", folder_path="$WORK/outputs",
-                  path_in_repo="heads_${IMAGE_SIZE}/outputs")
+                  path_in_repo="$RUN_NAME/outputs")
 api.upload_folder(repo_id="$RESULTS_REPO", repo_type="dataset", folder_path="$WORK/features",
-                  path_in_repo="heads_${IMAGE_SIZE}/features")
+                  path_in_repo="$RUN_NAME/features")
 PY
 step "done"
