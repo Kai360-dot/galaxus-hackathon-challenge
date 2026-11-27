@@ -26,23 +26,40 @@ import common
 from heads import answers_from, load_features, load_parts, predict, select, targets, train_heads
 
 
+def extra_features(extra_dir, part, image_ids, mirrored):
+    """Helper features (for example DINOv2) for each feature row, matched by image and mirroring."""
+    ids, flips, _, features, _ = load_features(Path(extra_dir), part)
+    flat = features.reshape(len(features), -1).astype(np.float32)
+    index = {(i, bool(f)): k for k, (i, f) in enumerate(zip(ids, flips))}
+    return np.stack([flat[index[(i, bool(f))]] for i, f in zip(image_ids, mirrored)])
+
+
 def heads_probabilities(spec, parts, seeds, epochs, device):
-    """Holdout (with context) and dev probabilities of heads trained on saved features, averaged over seeds."""
-    features_dir, configuration = spec.split("=")
+    """Holdout (with context) and dev probabilities of heads trained on saved features, averaged over seeds.
+
+    spec: FEATURES_DIR=LAYERS:POOLING:HIDDEN, optionally =EXTRA_DIR with helper features appended to each row.
+    """
+    features_dir, configuration, *extra = spec.split("=")
     features_dir = Path(features_dir)
     layers_text, pooling, hidden = configuration.split(":")
     train_ids, train_mirrored, _, train_features, layers = load_features(features_dir, "train")
-    holdout_ids, _, holdout_context, holdout_features, _ = load_features(features_dir, "holdout")
-    dev_ids, _, _, dev_features, _ = load_features(features_dir, "dev")
+    holdout_ids, holdout_mirrored, holdout_context, holdout_features, _ = load_features(features_dir, "holdout")
+    dev_ids, dev_mirrored, _, dev_features, _ = load_features(features_dir, "dev")
     holdout_ids, holdout_features = holdout_ids[holdout_context], holdout_features[holdout_context]
+    holdout_mirrored = holdout_mirrored[holdout_context]
     indices = [layers.index(int(layer)) for layer in layers_text.split(",")]
     y = targets(parts["train"], train_ids, train_mirrored)
     x_train = select(train_features, indices, pooling)
+    x_holdout = select(holdout_features, indices, pooling)
+    x_dev = select(dev_features, indices, pooling)
+    for extra_dir in (extra[0].split(",") if extra else []):  # several helper feature folders, comma separated
+        x_train = np.hstack([x_train, extra_features(extra_dir, "train", train_ids, train_mirrored)])
+        x_holdout = np.hstack([x_holdout, extra_features(extra_dir, "holdout", holdout_ids, holdout_mirrored)])
+        x_dev = np.hstack([x_dev, extra_features(extra_dir, "dev", dev_ids, dev_mirrored)])
     sums = {"holdout": None, "dev": None}
     for seed in range(seeds):
         heads, mean, std = train_heads(x_train, y, int(hidden), epochs, device, common.SEED + seed)
-        for part, x in (("holdout", select(holdout_features, indices, pooling)),
-                        ("dev", select(dev_features, indices, pooling))):
+        for part, x in (("holdout", x_holdout), ("dev", x_dev)):
             p = predict(heads, mean, std, x, device)
             sums[part] = p if sums[part] is None else {d: sums[part][d] + p[d] for d in p}
     return {
@@ -180,7 +197,8 @@ def write_submission(data_dir, answers, path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--heads", action="append", default=[], help="NAME=FEATURES_DIR=LAYERS:POOLING:HIDDEN")
+    parser.add_argument("--heads", action="append", default=[],
+                        help="NAME=FEATURES_DIR=LAYERS:POOLING:HIDDEN[=EXTRA_DIR[,EXTRA_DIR...]]")
     parser.add_argument("--probs", action="append", default=[], help="NAME=HOLDOUT_JSONL=DEV_JSONL")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--epochs", type=int, default=30)
