@@ -12,7 +12,7 @@ $UV pip install --python "$PY" torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.
   --index-url https://download.pytorch.org/whl/cu128
 $UV pip install --python "$PY" \
   "transformers[torch,vision,audio] @ git+https://github.com/swiss-ai/transformers.git@3797303dda74844e3d1f8977ff5518bb91f818b4" \
-  accelerate bitsandbytes "pandas>=2.1" pillow tqdm huggingface_hub kaggle py7zr
+  accelerate bitsandbytes "pandas>=2.1" pillow tqdm huggingface_hub kaggle==2.2.5 six py7zr  # the kaggle CLI imports six without declaring it
 $UV pip install --python "$PY" torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 "$PY" -c "import torch, transformers; from transformers import AutoModelForMultimodalLM; \
 print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), '| transformers', transformers.__version__)"

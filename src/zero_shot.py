@@ -2,9 +2,12 @@
 
 Measures what we need to plan: the score without training, vision tokens per image, GPU memory, images per second.
 
-    python src/zero_shot.py --data-dir ~/galaxus/data --limit 100
-    python src/zero_shot.py --data-dir ~/galaxus/data --limit 100 --guideline   # with labeling_guideline.md
-    python src/zero_shot.py --data-dir ~/galaxus/data --limit 100 --no-context  # without the product context
+    python src/zero_shot.py --data-dir ~/galaxus/data --limit 100 --variants plain guideline no_context
+
+Variants share one loaded model:
+    plain       short prompt with the class lists, product context on
+    guideline   plain + labeling_guideline.md in the system prompt
+    no_context  plain without the product context (production may lack it)
 """
 
 import argparse
@@ -19,6 +22,10 @@ from transformers import AutoModelForMultimodalLM, AutoProcessor, BitsAndBytesCo
 import common
 
 
+# name: (labeling guideline in the prompt, product context in the request)
+VARIANTS = {"plain": (False, True), "guideline": (True, True), "no_context": (False, False)}
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, required=True, help="folder with train.csv, metric.py, images")
@@ -27,10 +34,9 @@ def parse_arguments():
     parser.add_argument("--quantization", choices=["4bit", "8bit", "none"], default="4bit")
     parser.add_argument("--image-size", type=int, default=512, help="images scaled to about this squared")
     parser.add_argument("--limit", type=int, default=100, help="holdout images to predict, 0 for all")
-    parser.add_argument("--guideline", action="store_true", help="put labeling_guideline.md into the prompt")
-    parser.add_argument("--no-context", action="store_true", help="leave out the product context")
+    parser.add_argument("--variants", nargs="+", choices=sorted(VARIANTS), default=["plain"])
     parser.add_argument("--max-new-tokens", type=int, default=160)
-    parser.add_argument("--output", type=Path, default=Path("outputs/zero_shot.jsonl"))
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     return parser.parse_args()
 
 
@@ -92,26 +98,18 @@ def build_messages(row, image, prompt, with_context):
     ]
 
 
-def main():
-    arguments = parse_arguments()
-    metric = common.load_metric(arguments.data_dir)
-    labeled = common.read_part(arguments.data_dir / "train.csv")
-    _, holdout = common.split_holdout(labeled)
-    rows = holdout if arguments.limit == 0 else holdout.head(arguments.limit)
-
-    guideline = (arguments.data_dir / "labeling_guideline.md").read_text() if arguments.guideline else None
+def run_variant(name, arguments, processor, model, rows, labeled, metric):
+    """Predict the rows with one prompt variant, then print speed, tokens and scores."""
+    with_guideline, with_context = VARIANTS[name]
+    guideline = (arguments.data_dir / "labeling_guideline.md").read_text() if with_guideline else None
     prompt = common.system_prompt(guideline)
-    with_context = not arguments.no_context
+    output_path = arguments.output_dir / f"zero_shot_{name}.jsonl"
 
-    processor, model = load_model(arguments)
-    print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU")
-
-    arguments.output.parent.mkdir(parents=True, exist_ok=True)
     answers, prompt_tokens, generated_tokens, image_tokens = {}, [], [], []
     torch.cuda.reset_peak_memory_stats()
     started = time.time()
-    with arguments.output.open("w") as output:
-        for row in tqdm(rows.to_dict("records"), desc="zero-shot"):
+    with output_path.open("w") as output:
+        for row in tqdm(rows.to_dict("records"), desc=name, mininterval=30):
             image = common.prepare_image(row["image_file"], arguments.image_size)
             inputs = encode(processor, build_messages(row, image, prompt, with_context), image, model.device)
             with torch.inference_mode():
@@ -128,17 +126,32 @@ def main():
     # A cell without a valid answer gets the most frequent human label, so the score stays comparable.
     fallback = {d: labeled.loc[labeled[f"{d}_source"] == "human", d].mode()[0] for d in common.DIMENSIONS}
     invalid = {d: sum(answer[d] is None for answer in answers.values()) for d in common.DIMENSIONS}
+    median = lambda values: sorted(values)[len(values) // 2]
 
-    print(f"\n{len(rows)} holdout images | context {'on' if with_context else 'off'} | "
+    print(f"\n===== {name}: {len(rows)} holdout images | context {'on' if with_context else 'off'} | "
           f"guideline {'on' if guideline else 'off'} | {arguments.quantization} | image size {arguments.image_size}")
     print(f"speed {len(rows) / elapsed:.2f} images/s (batch 1, transformers) | "
           f"peak GPU memory {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB")
-    median = lambda values: sorted(values)[len(values) // 2]
     print(f"tokens per request median {median(prompt_tokens)}, of which image {median(image_tokens)} | "
           f"generated tokens median {median(generated_tokens)}")
     print(f"invalid answers per dimension: {invalid}\n")
     common.print_metrics(common.score_rows(metric, rows, answers, fallback))
-    print(f"\nraw answers in {arguments.output}")
+    print(f"raw answers in {output_path}", flush=True)
+
+
+def main():
+    arguments = parse_arguments()
+    metric = common.load_metric(arguments.data_dir)
+    labeled = common.read_part(arguments.data_dir / "train.csv")
+    _, holdout = common.split_holdout(labeled)
+    rows = holdout if arguments.limit == 0 else holdout.head(arguments.limit)
+    arguments.output_dir.mkdir(parents=True, exist_ok=True)
+
+    started = time.time()
+    processor, model = load_model(arguments)
+    print(f"model loaded in {time.time() - started:.0f} s, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU")
+    for name in arguments.variants:
+        run_variant(name, arguments, processor, model, rows, labeled, metric)
 
 
 if __name__ == "__main__":
