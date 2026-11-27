@@ -205,12 +205,14 @@ def main():
     parser.add_argument("--step", type=float, default=0.25, help="grid step of the weight search")
     parser.add_argument("--tuned", action="store_true", help="dev submission with the weights tuned on the holdout")
     parser.add_argument("--bias", action="store_true", help="dev submission with class biases tuned on the holdout")
+    parser.add_argument("--device", help="cuda or cpu (default: cuda when available)")
+    parser.add_argument("--save-sources", action="store_true", help="also save each source's holdout probabilities")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/ensemble"))
     arguments = parser.parse_args()
 
     parts = load_parts(arguments.data_dir)
     metric = common.load_metric(arguments.data_dir)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = arguments.device or ("cuda" if torch.cuda.is_available() else "cpu")
     sources = {}
     for spec in arguments.heads:
         name, rest = spec.split("=", 1)
@@ -224,6 +226,10 @@ def main():
     common_ids = set.intersection(*(set(s["holdout"]) for s in sources.values()))
     rows = parts["holdout"][parts["holdout"]["image_id"].isin(common_ids)].reset_index(drop=True)
     holdout = {name: s["holdout"] for name, s in sources.items()}
+    if arguments.save_sources:
+        arguments.output_dir.mkdir(parents=True, exist_ok=True)
+        for name, probabilities in holdout.items():
+            np.save(arguments.output_dir / f"holdout_probabilities_{name}.npy", probabilities, allow_pickle=True)
     print(f"\nholdout: {len(rows)} images with context, scored like the leaderboard\n")
     for name in sources:
         print(line(name, score(metric, rows, holdout[name])))

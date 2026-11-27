@@ -11,6 +11,7 @@ answer (the tree's fallback), since the contour model of the question tree would
 
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 
 import numpy as np
@@ -53,6 +54,7 @@ def main():
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--answers", type=Path, required=True, help="features folder of tree_features.py")
     parser.add_argument("--pixels", type=Path, default=Path("results/pixels"))
+    parser.add_argument("--save", type=Path, help="write the labels of the tree with kept rules as json")
     arguments = parser.parse_args()
 
     tree = load_tree()
@@ -75,6 +77,9 @@ def main():
         fixed = {i: {d: a.get(d) if a.get(d) in common.CLASSES[d] else "none" if "none" in common.CLASSES[d]
                      else common.CLASSES[d][0] for d in common.DIMENSIONS} for i, a in answers.items()}
         metrics = common.score_rows(metric, rows, fixed, {})
+        if arguments.save and name == "tree with kept rules":
+            arguments.save.parent.mkdir(parents=True, exist_ok=True)
+            arguments.save.write_text(json.dumps({str(i): v for i, v in fixed.items()}))
         print(f"{name:45} macro F1 {metrics['overall']['f1_macro']:.3f} | weighted {metrics['overall']['f1_weighted']:.3f}"
               + "".join(f" | {d[:8]} {metrics[d]['f1_macro']:.2f}" for d in common.DIMENSIONS if d in metrics))
 
