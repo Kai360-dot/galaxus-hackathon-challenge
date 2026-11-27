@@ -1,13 +1,14 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 import argparse
+from collections import Counter
 import json
+import os
+import sys
 from pathlib import Path
 import pandas as pd
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
+from tqdm import tqdm
 from transformers import (
     AutoModelForMultimodalLM,
     AutoProcessor,
@@ -17,26 +18,41 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-MODEL_ID = "swiss-ai/Apertus-v1.5-8B"
-DIMENSIONS = ["subject", "background", "perspective", "individuals", "text_classification", "text_language"]
+sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
+from metric import DIMENSIONS
+from prompts import SYSTEM_PROMPT
+from label_sanitizer import sanitize_dataframe
+from eval_dimensions import evaluate_predictions
 
-SYSTEM_PROMPT = (
-    "Classify this e-commerce product image into JSON with exact keys: "
-    "subject, background, perspective, individuals, text_classification, text_language. "
-    "Respond ONLY with valid JSON."
-)
+MODEL_ID = "swiss-ai/Apertus-v1.5-8B"
 
 
 class GalaxusMultimodalDataset(Dataset):
-    def __init__(self, csv_path: str, img_dir: str, processor):
-        self.df = pd.read_csv(csv_path)
+    def __init__(self, csv_path: str, img_dir: str, processor, rare_threshold: int = 150, oversample_factor: int = 2):
+        raw_df = pd.read_csv(csv_path)
+        self.df = sanitize_dataframe(raw_df, is_ground_truth=True)
         self.img_dir = Path(img_dir)
         self.processor = processor
+
+        rare_labels = {d: set() for d in DIMENSIONS}
+        for d in DIMENSIONS:
+            counts = Counter(self.df[d][self.df[d] != ""])
+            for cls, cnt in counts.items():
+                if cnt < rare_threshold:
+                    rare_labels[d].add(cls)
+
         self.records = []
         for _, row in self.df.iterrows():
             img_id = str(row["image_id"])
             matches = list(self.img_dir.glob(f"{img_id}.*"))
-            if matches:
+            if not matches:
+                continue
+            # Skip rows where every single dimension label was missing/corrupted
+            if all(row[d] == "" for d in DIMENSIONS):
+                continue
+            has_rare = any(row[d] in rare_labels[d] for d in DIMENSIONS)
+            repeats = oversample_factor if has_rare else 1
+            for _ in range(repeats):
                 self.records.append((matches[0], row))
 
     def __len__(self):
@@ -45,7 +61,7 @@ class GalaxusMultimodalDataset(Dataset):
     def __getitem__(self, idx):
         img_path, row = self.records[idx]
         image = Image.open(img_path).convert("RGB")
-        target = {d: (str(row[d]).strip() if pd.notna(row[d]) else "none") for d in DIMENSIONS}
+        target = {d: (row[d] if row[d] != "" else "none") for d in DIMENSIONS}
         target_json = json.dumps(target, ensure_ascii=False)
 
         prompt_msgs = [
@@ -68,7 +84,7 @@ class GalaxusMultimodalDataset(Dataset):
         attention_mask = full_inputs["attention_mask"][0]
         labels = input_ids.clone()
         prompt_len = prompt_inputs["input_ids"].shape[1]
-        labels[:prompt_len] = -100  # Mask prompt and all discrete <|image|> tokens
+        labels[:prompt_len] = -100
 
         item = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
         if "pixel_values" in full_inputs:
@@ -92,39 +108,104 @@ def collate_fn(batch):
     return out
 
 
+def run_batched_inference(model, processor, csv_path: str, img_dir: str, out_csv: str, batch_size: int = 24) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    img_root = Path(img_dir)
+    processor.tokenizer.padding_side = "left"
+    if processor.tokenizer.pad_token_id is None:
+        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
+
+    model.eval()
+    rows = []
+    for start in tqdm(range(0, len(df), batch_size), desc=f"Infer {Path(csv_path).name}"):
+        chunk = df.iloc[start : start + batch_size]
+        texts, images, valid_ids = [], [], []
+        for _, r in chunk.iterrows():
+            img_id = str(r["image_id"])
+            matches = list(img_root.glob(f"{img_id}.*"))
+            if not matches:
+                rows.append({"image_id": img_id})
+                continue
+            msgs = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Classify this image."}]},
+            ]
+            texts.append(processor.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False
+            ))
+            images.append(Image.open(matches[0]).convert("RGB"))
+            valid_ids.append(img_id)
+
+        if not texts:
+            continue
+        inputs = processor(text=texts, images=images, padding=True, return_tensors="pt").to(model.device)
+        prompt_len = inputs["input_ids"].shape[1]
+        with torch.inference_mode():
+            gen_ids = model.generate(
+                **inputs, max_new_tokens=96, do_sample=False, pad_token_id=processor.tokenizer.pad_token_id
+            )
+        for img_id, raw in zip(valid_ids, processor.batch_decode(gen_ids[:, prompt_len:], skip_special_tokens=True)):
+            try:
+                parsed = json.loads(raw[raw.find("{") : raw.rfind("}") + 1])
+            except Exception:
+                parsed = {}
+            parsed["image_id"] = img_id
+            rows.append(parsed)
+
+    raw_preds = df[["image_id"]].merge(pd.DataFrame(rows), on="image_id", how="left")
+    clean_preds = sanitize_dataframe(raw_preds, is_ground_truth=False)
+    clean_preds.to_csv(out_csv, index=False)
+    return clean_preds
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-csv", default="data/train_clean.csv")
     parser.add_argument("--img-dir", default="data/train_images")
-    parser.add_argument("--out-dir", default="checkpoints/apertus-8b-qlora")
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--val-csv", default=None)
+    parser.add_argument("--val-img", default=None)
+    parser.add_argument("--val-out-csv", default="outputs/apertus_val_preds.csv")
+    parser.add_argument("--dev-csv", default=None)
+    parser.add_argument("--dev-img", default=None)
+    parser.add_argument("--dev-out-csv", default="outputs/apertus_dev_preds.csv")
+    parser.add_argument("--out-dir", default="outputs/apertus-8b-lora")
+    parser.add_argument("--hub-repo", default=None, help="Optional HF repo e.g. helshahaby/apertus-galaxus-lora")
+    parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1.5e-4)
-    parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--grad-accum", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--grad-accum", type=int, default=4)
     args, _ = parser.parse_known_args()
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-        llm_int8_skip_modules=["vision_tokenizer", "vqgan", "lm_head"],
-    )
+    os.makedirs(args.out_dir, exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
+
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3) if torch.cuda.is_available() else 0
+    use_4bit = vram_gb < 32.0
+    print(f"Detected GPU VRAM: {vram_gb:.1f} GB | Using 4-bit QLoRA: {use_4bit}")
 
     processor = AutoProcessor.from_pretrained(MODEL_ID)
-    model = AutoModelForMultimodalLM.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        device_map={"": 0},
-        low_cpu_mem_usage=True,
-    )
+    if use_4bit:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            llm_int8_skip_modules=["vision_tokenizer", "vqgan", "lm_head"],
+        )
+        model = AutoModelForMultimodalLM.from_pretrained(
+            MODEL_ID, quantization_config=bnb_config, device_map={"": 0}, low_cpu_mem_usage=True
+        )
+        for name, module in model.named_modules():
+            if "vision" in name or "vq" in name:
+                module.to(torch.float32)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    else:
+        # L40S (48GB) / A100 (80GB): native bf16 keeps vision_tokenizer in float32 automatically
+        model = AutoModelForMultimodalLM.from_pretrained(
+            MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto", low_cpu_mem_usage=True
+        )
+        model.gradient_checkpointing_enable()
 
-    # Keep EMU3.5 vision tokenizer in float32 so codebook lookups never segfault or drift
-    for name, module in model.named_modules():
-        if "vision" in name or "vq" in name:
-            module.to(torch.float32)
-
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     lora_cfg = LoraConfig(
         r=32,
         lora_alpha=64,
@@ -150,11 +231,25 @@ def main():
         save_strategy="epoch",
         remove_unused_columns=False,
         report_to="none",
+        push_to_hub=bool(args.hub_repo),
+        hub_model_id=args.hub_repo,
+        hub_private_repo=True,
     )
     Trainer(model=model, args=train_args, train_dataset=dataset, data_collator=collate_fn).train()
     model.save_pretrained(args.out_dir)
     processor.save_pretrained(args.out_dir)
-    print(f"Saved QLoRA adapter to {args.out_dir}")
+    if args.hub_repo:
+        model.push_to_hub(args.hub_repo, private=True)
+        processor.push_to_hub(args.hub_repo, private=True)
+
+    if args.val_csv and args.val_img:
+        val_preds = run_batched_inference(model, processor, args.val_csv, args.val_img, args.val_out_csv)
+        val_truth = pd.read_csv(args.val_csv)
+        if all(d in val_truth.columns for d in DIMENSIONS):
+            evaluate_predictions(val_truth, val_preds)
+
+    if args.dev_csv and args.dev_img:
+        run_batched_inference(model, processor, args.dev_csv, args.dev_img, args.dev_out_csv)
 
 
 if __name__ == "__main__":
