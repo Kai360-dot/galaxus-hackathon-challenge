@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 from metric import DIMENSIONS, VALID_CLASSES
 
 SYSTEM_PROMPT = (
-    "You are a product image classifier for Galaxus. Classify the image into JSON with exact keys: "
+    "You are an e-commerce product image classifier for Galaxus. Classify the image into JSON with exact keys: "
     "subject, background, perspective, individuals, text_classification, text_language.\n"
     + "\n".join(f"- {d}: {sorted(VALID_CLASSES[d])}" for d in DIMENSIONS)
     + "\nRespond ONLY with valid JSON using exact allowed class names."
@@ -25,10 +25,12 @@ SPLIT_CONFIG = {
     "final": ("data/final/test.csv", "data/final/images", "data/final_preds_raw.csv"),
 }
 
+
 def encode_image(path: Path) -> str:
     mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     b64 = base64.b64encode(path.read_bytes()).decode("utf-8")
     return f"data:{mime};base64,{b64}"
+
 
 def classify_one(client: OpenAI, model: str, img_id: str, img_dir: Path) -> dict:
     matches = list(img_dir.glob(f"{img_id}.*"))
@@ -55,12 +57,13 @@ def classify_one(client: OpenAI, model: str, img_id: str, img_dir: Path) -> dict
     parsed["image_id"] = img_id
     return parsed
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", choices=list(SPLIT_CONFIG.keys()), default="synthetic")
     parser.add_argument("--model", default=os.getenv("APERTUS_MODEL", "swiss-ai/Apertus-v1.5-8B"))
     parser.add_argument("--workers", type=int, default=8)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     client = OpenAI(
         api_key=os.environ["APERTUS_API_KEY"],
@@ -79,6 +82,7 @@ def main():
     out_df = df[["image_id"]].merge(pd.DataFrame(results), on="image_id", how="left")
     out_df.to_csv(out_csv, index=False)
     print(f"Saved {len(out_df)} API predictions to {out_csv}")
+
 
 if __name__ == "__main__":
     main()

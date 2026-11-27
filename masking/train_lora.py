@@ -1,4 +1,6 @@
-# Apertus-v1.5-8B bf16 LoRA training
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import argparse
 import json
 from pathlib import Path
@@ -6,8 +8,14 @@ import pandas as pd
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
-from transformers import AutoModelForMultimodalLM, AutoProcessor, Trainer, TrainingArguments
-from peft import LoraConfig, get_peft_model
+from transformers import (
+    AutoModelForMultimodalLM,
+    AutoProcessor,
+    BitsAndBytesConfig,
+    Trainer,
+    TrainingArguments,
+)
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 MODEL_ID = "swiss-ai/Apertus-v1.5-8B"
 DIMENSIONS = ["subject", "background", "perspective", "individuals", "text_classification", "text_language"]
@@ -17,6 +25,7 @@ SYSTEM_PROMPT = (
     "subject, background, perspective, individuals, text_classification, text_language. "
     "Respond ONLY with valid JSON."
 )
+
 
 class GalaxusMultimodalDataset(Dataset):
     def __init__(self, csv_path: str, img_dir: str, processor):
@@ -66,10 +75,10 @@ class GalaxusMultimodalDataset(Dataset):
             item["pixel_values"] = full_inputs["pixel_values"][0]
         return item
 
+
 def collate_fn(batch):
     max_len = max(x["input_ids"].shape[0] for x in batch)
-    pad_id = 0
-    input_ids = torch.full((len(batch), max_len), pad_id, dtype=torch.long)
+    input_ids = torch.zeros((len(batch), max_len), dtype=torch.long)
     attention_mask = torch.zeros((len(batch), max_len), dtype=torch.long)
     labels = torch.full((len(batch), max_len), -100, dtype=torch.long)
     for i, x in enumerate(batch):
@@ -82,21 +91,40 @@ def collate_fn(batch):
         out["pixel_values"] = torch.stack([x["pixel_values"] for x in batch])
     return out
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-csv", default="data/train_clean.csv")
     parser.add_argument("--img-dir", default="data/train_images")
-    parser.add_argument("--out-dir", default="checkpoints/apertus-8b-lora")
+    parser.add_argument("--out-dir", default="checkpoints/apertus-8b-qlora")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1.5e-4)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--grad-accum", type=int, default=8)
     args, _ = parser.parse_known_args()
 
-    processor = AutoProcessor.from_pretrained(MODEL_ID)
-    # dtype="auto" keeps LLM in bf16 while preserving float32 on the EMU3.5 vision tokenizer
-    model = AutoModelForMultimodalLM.from_pretrained(MODEL_ID, dtype="auto", device_map="auto")
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+        llm_int8_skip_modules=["vision_tokenizer", "vqgan", "lm_head"],
+    )
 
+    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    model = AutoModelForMultimodalLM.from_pretrained(
+        MODEL_ID,
+        quantization_config=bnb_config,
+        device_map={"": 0},
+        low_cpu_mem_usage=True,
+    )
+
+    # Keep EMU3.5 vision tokenizer in float32 so codebook lookups never segfault or drift
+    for name, module in model.named_modules():
+        if "vision" in name or "vq" in name:
+            module.to(torch.float32)
+
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     lora_cfg = LoraConfig(
         r=32,
         lora_alpha=64,
@@ -126,7 +154,8 @@ def main():
     Trainer(model=model, args=train_args, train_dataset=dataset, data_collator=collate_fn).train()
     model.save_pretrained(args.out_dir)
     processor.save_pretrained(args.out_dir)
-    print(f"Saved LoRA adapter to {args.out_dir}")
+    print(f"Saved QLoRA adapter to {args.out_dir}")
+
 
 if __name__ == "__main__":
     main()

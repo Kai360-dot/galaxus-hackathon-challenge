@@ -1,4 +1,3 @@
-# Schema-constrained batch inference +
 import argparse
 import json
 import sys
@@ -31,16 +30,23 @@ SPLIT_CONFIG = {
     "final": ("data/final/test.csv", "data/final/images", "data/final_preds_raw.csv"),
 }
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", choices=list(SPLIT_CONFIG.keys()), default="synthetic")
-    parser.add_argument("--lora-path", default=None, help="Path to trained LoRA adapter directory")
+    parser.add_argument("--csv-path", default=None)
+    parser.add_argument("--img-dir", default=None)
+    parser.add_argument("--out-csv", default=None)
+    parser.add_argument("--lora-path", default=None)
     parser.add_argument("--batch-size", type=int, default=64)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
-    csv_path, img_dir_str, out_csv = SPLIT_CONFIG[args.split]
+    default_csv, default_img, default_out = SPLIT_CONFIG[args.split]
+    csv_path = args.csv_path or default_csv
+    img_dir = Path(args.img_dir or default_img)
+    out_csv = args.out_csv or default_out
+
     df = pd.read_csv(csv_path)
-    img_dir = Path(img_dir_str)
 
     llm = LLM(
         model=MODEL_ID,
@@ -89,11 +95,10 @@ def main():
                 parsed["image_id"] = img_id
                 rows.append(parsed)
 
-    out_df = pd.DataFrame(rows)[["image_id", *DIMENSIONS]]
-    # Preserve exact row order from input CSV
-    out_df = df[["image_id"]].merge(out_df, on="image_id", how="left")
+    out_df = df[["image_id"]].merge(pd.DataFrame(rows)[["image_id", *DIMENSIONS]], on="image_id", how="left")
     out_df.to_csv(out_csv, index=False)
     print(f"Wrote {len(out_df)} schema-constrained predictions to {out_csv}")
+
 
 if __name__ == "__main__":
     main()

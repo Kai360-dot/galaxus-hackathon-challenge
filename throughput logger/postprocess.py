@@ -40,7 +40,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--in-csv", required=True)
     parser.add_argument("--out-csv", required=True)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     df = pd.read_csv(args.in_csv)
     cleaned = apply_rules(df)

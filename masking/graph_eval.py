@@ -12,7 +12,7 @@ def main():
     parser.add_argument("--train-csv", default="data/train.csv")
     parser.add_argument("--truth", default="data/synthetic_test.csv")
     parser.add_argument("--pred", default="data/synthetic_preds.csv")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     train = pd.read_csv(args.train_csv)
     truth = pd.read_csv(args.truth).set_index("image_id")
