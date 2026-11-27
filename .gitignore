@@ -39,3 +39,13 @@ final_images/
 img_*.jpg
 img_*.png
 labeling_guideline.*
+
+# Competition data, encrypted test archive, submissions & secrets
+data/
+train_images/
+dev_images/
+final/
+*.csv
+*.bin
+*.7z
+.env
