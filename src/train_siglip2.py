@@ -48,7 +48,19 @@ class GalaxusVisionDataset(Dataset):
 class SigLIPMultiHead(nn.Module):
     def __init__(self, model_id: str):
         super().__init__()
-        self.backbone = AutoModel.from_pretrained(model_id).vision_model
+        # Load only vision_model (saves ~2.2 GB vs loading text encoder too!)
+        full_model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16)
+        self.backbone = full_model.vision_model
+        del full_model
+        self.backbone.gradient_checkpointing_enable()
+
+        # Freeze lower 18 layers; fine-tune top 9 encoder blocks + head in fp32 for stability
+        for name, param in self.backbone.named_parameters():
+            if not any(f"layers.{i}." in name for i in range(18, 27)) and "head" not in name and "post_layernorm" not in name:
+                param.requires_grad = False
+            else:
+                param.data = param.data.float()
+
         hidden = self.backbone.config.hidden_size
         self.heads = nn.ModuleDict({
             d: nn.Sequential(nn.LayerNorm(hidden), nn.Dropout(0.2), nn.Linear(hidden, len(LABEL_MAPS[d])))
@@ -56,7 +68,7 @@ class SigLIPMultiHead(nn.Module):
         })
 
     def forward(self, pixel_values):
-        feat = self.backbone(pixel_values=pixel_values).pooler_output
+        feat = self.backbone(pixel_values=pixel_values).pooler_output.float()
         return {d: head(feat) for d, head in self.heads.items()}
 
 
@@ -68,8 +80,8 @@ def main():
     parser.add_argument("--val-img", default="data/synthetic_images")
     parser.add_argument("--out-pred", default="data/siglip2_synthetic_preds.csv")
     parser.add_argument("--out-probs", default="data/siglip2_synthetic_probs.npz")
-    parser.add_argument("--epochs", type=int, default=4)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=5)
+    parser.add_argument("--batch-size", type=int, default=16)
     args, _ = parser.parse_known_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -81,8 +93,9 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
     model = SigLIPMultiHead(SIGLIP_ID).to(device)
+    trainable_backbone = [p for p in model.backbone.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW([
-        {"params": model.backbone.parameters(), "lr": 2e-5},
+        {"params": trainable_backbone, "lr": 3e-5},
         {"params": model.heads.parameters(), "lr": 5e-4},
     ], weight_decay=0.01)
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
@@ -93,8 +106,8 @@ def main():
         total_loss = 0.0
         for px, targets in train_loader:
             px = px.to(device)
-            optimizer.zero_grad()
-            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast("cuda", dtype=torch.float16):
                 logits = model(px)
                 loss = sum(criterion(logits[d], targets[d].to(device)) for d in DIMENSIONS)
             scaler.scale(loss).backward()
@@ -111,7 +124,7 @@ def main():
     with torch.no_grad():
         for px, img_ids in val_loader:
             px = px.to(device)
-            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+            with torch.amp.autocast("cuda", dtype=torch.float16):
                 logits = model(px)
             ordered_ids.extend(img_ids)
             for d in DIMENSIONS:
