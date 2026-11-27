@@ -107,6 +107,59 @@ def search_weights(metric, rows, sources, step):
     return {d: best[d][1] for d in common.DIMENSIONS}
 
 
+def scored_labels(rows, d):
+    """The human labels of the scored cells of one dimension, None elsewhere (as metric.py scores them)."""
+    scored = (rows[f"{d}_source"] == "human") & (rows[f"{d}_relevant"].str.lower() == "true")
+    return np.where(scored, rows[d], None)
+
+
+def macro_f1(labels, predictions):
+    """Macro F1 over the classes in the labels plus the predicted ones, on the scored cells (as metric.py)."""
+    keep = labels != None  # noqa: E711, elementwise
+    labels, predictions = labels[keep], predictions[keep]
+    classes = set(labels) | set(predictions)
+    f1 = []
+    for c in classes:
+        tp = np.sum((predictions == c) & (labels == c))
+        fp = np.sum((predictions == c) & (labels != c))
+        fn = np.sum((predictions != c) & (labels == c))
+        f1.append(2 * tp / (2 * tp + fp + fn) if tp + fp + fn else 0.0)
+    return float(np.mean(f1)) if f1 else 0.0
+
+
+def tune_biases(probabilities, rows, grid=np.arange(-2.0, 2.01, 0.25), passes=2):
+    """Per dimension an additive offset per class on the log-probabilities, by coordinate ascent on macro F1."""
+    ids = list(rows["image_id"])
+    biases = {}
+    for d in common.DIMENSIONS:
+        labels = scored_labels(rows, d)
+        log_p = np.log(np.stack([probabilities[i][d] for i in ids]) + 1e-9)
+        classes = np.array(common.CLASSES[d])
+        bias = np.zeros(len(classes))
+        best = macro_f1(labels, classes[(log_p + bias).argmax(1)])
+        for _ in range(passes):
+            for c in range(len(classes)):
+                for value in grid:
+                    trial = bias.copy()
+                    trial[c] = value
+                    f1 = macro_f1(labels, classes[(log_p + trial).argmax(1)])
+                    if f1 > best + 1e-9:
+                        best, bias = f1, trial
+        biases[d] = bias
+    return biases
+
+
+def apply_biases(probabilities, biases):
+    """Probabilities with the offsets applied (renormalized), so argmax gives the tuned answer."""
+    result = {}
+    for i, p in probabilities.items():
+        result[i] = {}
+        for d in common.DIMENSIONS:
+            q = np.exp(np.log(p[d] + 1e-9) + biases[d])
+            result[i][d] = q / q.sum()
+    return result
+
+
 def line(name, metrics):
     return (f"{name:28} macro F1 {metrics['overall']['f1_macro']:.3f} | weighted {metrics['overall']['f1_weighted']:.3f}"
             + "".join(f" | {d[:8]} {metrics[d]['f1_macro']:.2f}" for d in common.DIMENSIONS if d in metrics))
@@ -133,6 +186,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--step", type=float, default=0.25, help="grid step of the weight search")
     parser.add_argument("--tuned", action="store_true", help="dev submission with the weights tuned on the holdout")
+    parser.add_argument("--bias", action="store_true", help="dev submission with class biases tuned on the holdout")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/ensemble"))
     arguments = parser.parse_args()
 
@@ -179,16 +233,37 @@ def main():
             scores.append(score(metric, test_rows, combine(holdout, weights, test_rows["image_id"]))["overall"]["f1_macro"])
         print(f"2-fold over holdout products, {label:14}: {np.mean(scores):.3f} ({', '.join(f'{s:.3f}' for s in scores)})")
 
+    # Bias tuning on the mean: honest estimate with the same two halves, then biases from the whole holdout.
+    mean_holdout = combine(holdout, equal, rows["image_id"])
+    reference = score(metric, rows, mean_holdout)
+    for d in common.DIMENSIONS:
+        predicted = np.array([common.CLASSES[d][int(mean_holdout[i][d].argmax())] for i in rows["image_id"]])
+        assert abs(macro_f1(scored_labels(rows, d), predicted) - reference[d]["f1_macro"]) < 1e-6, f"macro F1 of {d}"
+    scores = []
+    for k in range(2):
+        fit_rows = rows[rows["product_id"].isin(halves[k])].reset_index(drop=True)
+        test_rows = rows[rows["product_id"].isin(halves[1 - k])].reset_index(drop=True)
+        biases = tune_biases(mean_holdout, fit_rows)
+        test = {i: mean_holdout[i] for i in test_rows["image_id"]}
+        scores.append(score(metric, test_rows, apply_biases(test, biases))["overall"]["f1_macro"])
+    print(f"2-fold over holdout products, {'mean + biases':14}: {np.mean(scores):.3f} ({', '.join(f'{s:.3f}' for s in scores)})")
+    biases = tune_biases(mean_holdout, rows)
+    print(line("mean + biases (optimistic)", score(metric, rows, apply_biases(mean_holdout, biases))))
+    print("  biases: " + " | ".join(f"{d[:8]} " + ",".join(f"{c}={b:+.2f}" for c, b in zip(common.CLASSES[d], biases[d]) if b)
+                                    for d in common.DIMENSIONS))
+
     dev_ids = set.intersection(*(set(s["dev"]) for s in sources.values()))
     if dev_ids:
         weights = tuned if arguments.tuned else equal
         dev = combine({name: s["dev"] for name, s in sources.items()}, weights, sorted(dev_ids))
         name = "tuned" if arguments.tuned else "mean"
+        if arguments.bias:
+            dev, name = apply_biases(dev, biases), name + "_biases"
         write_submission(arguments.data_dir, argmax_answers(dev), arguments.output_dir / f"submission_ensemble_{name}.csv")
         np.save(arguments.output_dir / f"dev_probabilities_{name}.npy", {i: p for i, p in dev.items()}, allow_pickle=True)
-    holdout_mean = combine(holdout, equal, rows["image_id"])
     arguments.output_dir.mkdir(parents=True, exist_ok=True)
-    np.save(arguments.output_dir / "holdout_probabilities_mean.npy", holdout_mean, allow_pickle=True)
+    np.save(arguments.output_dir / "holdout_probabilities_mean.npy", mean_holdout, allow_pickle=True)
+    np.save(arguments.output_dir / "biases.npy", biases, allow_pickle=True)
 
 
 if __name__ == "__main__":
