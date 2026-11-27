@@ -36,13 +36,19 @@ def parse_arguments():
 
 def load_model(arguments):
     """Apertus with its processor, quantized so it fits on a 12 GB card."""
+    # The vision and audio tokenizers are precision-sensitive and stay in float32 (model card), so they are not
+    # quantized; neither is the LM head.
+    keep_full_precision = ["vision_tokenizer", "audio_tokenizer", "lm_head"]
     quantization = None
     if arguments.quantization == "4bit":
         quantization = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            llm_int8_skip_modules=keep_full_precision,
         )
     elif arguments.quantization == "8bit":
-        quantization = BitsAndBytesConfig(load_in_8bit=True)
+        quantization = BitsAndBytesConfig(load_in_8bit=True, llm_int8_skip_modules=keep_full_precision)
     processor = AutoProcessor.from_pretrained(arguments.model, revision=arguments.revision)
     model = AutoModelForMultimodalLM.from_pretrained(
         arguments.model,
@@ -55,9 +61,30 @@ def load_model(arguments):
     return processor, model
 
 
+def count_image_tokens(input_ids, model):
+    """The vision tokens of a request: ids from the image token offset on (config.json: image_token_offset)."""
+    offset = model.config.image_token_offset
+    audio_offset = getattr(model.config, "audio_token_offset", None)
+    is_image = input_ids >= offset
+    if audio_offset is not None:
+        is_image &= input_ids < audio_offset
+    return is_image.sum().item() or (input_ids == model.config.image_token_id).sum().item()
+
+
+# Apertus starts deliberating (<|inner_prefix|> ...) even with enable_thinking=False. Opening the answer ourselves
+# leaves it no room for that: it can only continue the JSON.
+ANSWER_PREFIX = '{"subject": "'
+
+
+def encode(processor, messages, image, device):
+    """Tokens and pixels of a request, with the assistant answer already opened by ANSWER_PREFIX."""
+    text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False, enable_thinking=False)
+    return processor(text=[text + ANSWER_PREFIX], images=[image], return_tensors="pt").to(device)
+
+
 def build_messages(row, image, prompt, with_context):
     return [
-        {"role": "system", "content": [{"type": "text", "text": prompt}]},
+        {"role": "system", "content": prompt},  # the Apertus template wants a plain string
         {
             "role": "user",
             "content": [{"type": "image", "image": image}, {"type": "text", "text": common.user_prompt(row, with_context)}],
@@ -80,26 +107,20 @@ def main():
     print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU")
 
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    answers, prompt_tokens, generated_tokens = {}, [], []
+    answers, prompt_tokens, generated_tokens, image_tokens = {}, [], [], []
     torch.cuda.reset_peak_memory_stats()
     started = time.time()
     with arguments.output.open("w") as output:
         for row in tqdm(rows.to_dict("records"), desc="zero-shot"):
             image = common.prepare_image(row["image_file"], arguments.image_size)
-            inputs = processor.apply_chat_template(
-                build_messages(row, image, prompt, with_context),
-                add_generation_prompt=True,
-                tokenize=True,
-                return_dict=True,
-                return_tensors="pt",
-                enable_thinking=False,
-            ).to(model.device)
+            inputs = encode(processor, build_messages(row, image, prompt, with_context), image, model.device)
             with torch.inference_mode():
                 generated = model.generate(**inputs, max_new_tokens=arguments.max_new_tokens, do_sample=False)
             new_tokens = generated[0, inputs["input_ids"].shape[1] :]
-            text = processor.decode(new_tokens, skip_special_tokens=True)
+            text = ANSWER_PREFIX + processor.decode(new_tokens, skip_special_tokens=True)
             answers[row["image_id"]] = common.parse_answer(text)
             prompt_tokens.append(inputs["input_ids"].shape[1])
+            image_tokens.append(int(count_image_tokens(inputs["input_ids"], model)))
             generated_tokens.append(len(new_tokens))
             output.write(json.dumps({"image_id": row["image_id"], "answer": text, "size": image.size}) + "\n")
     elapsed = time.time() - started
@@ -112,8 +133,9 @@ def main():
           f"guideline {'on' if guideline else 'off'} | {arguments.quantization} | image size {arguments.image_size}")
     print(f"speed {len(rows) / elapsed:.2f} images/s (batch 1, transformers) | "
           f"peak GPU memory {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB")
-    print(f"prompt tokens median {sorted(prompt_tokens)[len(prompt_tokens) // 2]} (system prompt + image + context) | "
-          f"generated tokens median {sorted(generated_tokens)[len(generated_tokens) // 2]}")
+    median = lambda values: sorted(values)[len(values) // 2]
+    print(f"tokens per request median {median(prompt_tokens)}, of which image {median(image_tokens)} | "
+          f"generated tokens median {median(generated_tokens)}")
     print(f"invalid answers per dimension: {invalid}\n")
     common.print_metrics(common.score_rows(metric, rows, answers, fallback))
     print(f"\nraw answers in {arguments.output}")

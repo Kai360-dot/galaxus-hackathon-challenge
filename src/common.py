@@ -84,7 +84,13 @@ def opaque_rgb_on_white(image):
     return canvas.convert("RGB")
 
 
-def resize_to_area(image, image_size, multiple=32, max_side_factor=8):
+# Apertus 1.5 makes one discrete vision token per 16 x 16 pixels (processor_config.json: spatial_factor 16),
+# with at least 65,536 pixels per image. So 256 -> 256 tokens, 384 -> 576 tokens, 512 -> 1,024 tokens.
+PATCH_SIZE = 16
+MIN_IMAGE_SIZE = 256
+
+
+def resize_to_area(image, image_size, multiple=PATCH_SIZE, max_side_factor=8):
     """The image scaled to about image_size**2 pixels, aspect ratio kept, each side a multiple of `multiple`."""
     scale = image_size / (image.width * image.height) ** 0.5
     scale *= min(1.0, max_side_factor * image_size / (max(image.width, image.height) * scale))
