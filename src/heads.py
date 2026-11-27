@@ -211,6 +211,14 @@ def select(features, layer_indices, pooling):
     return features[:, layer_indices][:, :, poolings].reshape(len(features), -1).astype(np.float32)
 
 
+def make_head(inputs, hidden, classes):
+    """A linear head, or one hidden layer when hidden > 0, with dropout."""
+    if hidden:
+        return torch.nn.Sequential(torch.nn.Dropout(0.2), torch.nn.Linear(inputs, hidden), torch.nn.GELU(),
+                                   torch.nn.Dropout(0.2), torch.nn.Linear(hidden, classes))
+    return torch.nn.Sequential(torch.nn.Dropout(0.2), torch.nn.Linear(inputs, classes))
+
+
 def train_heads(x, y, hidden, epochs, device, seed):
     """One head per dimension (linear, or one hidden layer), class-weighted cross-entropy on human labels."""
     torch.manual_seed(seed)
@@ -225,12 +233,7 @@ def train_heads(x, y, hidden, epochs, device, seed):
         counts = torch.bincount(labels[keep], minlength=classes).float()
         weights = (counts.clamp(min=1) ** -0.5) * (counts > 0)  # rare classes weigh more, absent ones not at all
         weights = weights / (weights * counts).sum() * counts.sum()
-        if hidden:
-            head = torch.nn.Sequential(torch.nn.Dropout(0.2), torch.nn.Linear(x.shape[1], hidden), torch.nn.GELU(),
-                                       torch.nn.Dropout(0.2), torch.nn.Linear(hidden, classes))
-        else:
-            head = torch.nn.Sequential(torch.nn.Dropout(0.2), torch.nn.Linear(x.shape[1], classes))
-        head = head.to(device)
+        head = make_head(x.shape[1], hidden, classes).to(device)
         optimizer = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=0.05)
         loss_function = torch.nn.CrossEntropyLoss(weight=weights)
         xs, ys = x[keep], labels[keep]
@@ -274,11 +277,17 @@ def fit(arguments):
           f"{int((~train_context).sum())} without context) | holdout {len(holdout_ids)} with context, "
           f"{len(bare_ids)} without | layers {layers}")
 
-    configurations = [([layers.index(l)], pooling) for l in layers for pooling in ("last", "mean", "both")]
-    configurations.append((list(range(len(layers))), "both"))
+    if arguments.only:
+        only_layers, only_pooling, only_hidden = arguments.only.split(":")
+        chosen = [layers.index(int(layer)) for layer in only_layers.split(",")]
+        configurations, hiddens = [(chosen, only_pooling)], [int(only_hidden)]
+    else:
+        configurations = [([layers.index(l)], pooling) for l in layers for pooling in ("last", "mean", "both")]
+        configurations.append((list(range(len(layers))), "both"))
+        hiddens = arguments.hidden
     results = []
     for layer_indices, pooling in configurations:
-        for hidden in arguments.hidden:
+        for hidden in hiddens:
             heads, mean, std = train_heads(select(train_features, layer_indices, pooling), y, hidden,
                                            arguments.epochs, device, arguments.seed)
             probabilities = predict(heads, mean, std, select(holdout_features, layer_indices, pooling), device)
@@ -299,12 +308,20 @@ def fit(arguments):
     print(f"\nbest on the holdout: {best[1]}\n")
     common.print_metrics(best[5])
 
-    # Retrain the best configuration on train + holdout? Not yet: the holdout stays our honest check.
+    # The best configuration, trained on train only (the holdout stays our honest check), saved for prediction.
     _, _, layer_indices, pooling, hidden, _ = best
+    heads, mean, std = train_heads(select(train_features, layer_indices, pooling), y, hidden,
+                                   arguments.epochs, device, arguments.seed)
+    arguments.output_dir.mkdir(parents=True, exist_ok=True)
+    heads_path = arguments.output_dir / "heads_best.pt"
+    torch.save({
+        "layers": [layers[i] for i in layer_indices], "pooling": pooling, "hidden": hidden,
+        "mean": mean.cpu(), "std": std.cpu(), "prompt": arguments.prompt, "image_size": arguments.image_size,
+        "heads": {d: head.state_dict() for d, head in heads.items()},
+    }, heads_path)
+    print(f"heads saved to {heads_path}")
     if (arguments.features_dir / "dev").exists():
         dev_ids, _, _, dev_features, _ = load_features(arguments.features_dir, "dev")
-        heads, mean, std = train_heads(select(train_features, layer_indices, pooling), y, hidden,
-                                       arguments.epochs, device, arguments.seed)
         dev_answers = answers_from(predict(heads, mean, std, select(dev_features, layer_indices, pooling), device), dev_ids)
         sample = pd.read_csv(arguments.data_dir / "sample_submission.csv", dtype=str, keep_default_na=False)
         submission = sample.set_index("image_id")
@@ -314,15 +331,71 @@ def fit(arguments):
         for d in common.DIMENSIONS:
             assert submission[d].isin(common.CLASSES[d]).all(), f"{d} has an invalid cell"
         path = arguments.output_dir / "submission_heads.csv"
-        path.parent.mkdir(parents=True, exist_ok=True)
         submission.reset_index().to_csv(path, index=False)
         print(f"\n{path}: {len(predicted)} of {len(dev_ids)} dev rows predicted, final rows keep the constants")
 
 
+def load_heads(path, device):
+    saved = torch.load(path, map_location=device)
+    inputs = saved["mean"].shape[1]
+    heads = {}
+    for d in common.DIMENSIONS:
+        head = make_head(inputs, saved["hidden"], len(common.CLASSES[d]))
+        head.load_state_dict(saved["heads"][d])
+        heads[d] = head.to(device).eval()
+    return saved, heads, saved["mean"].to(device), saved["std"].to(device)
+
+
+def predict_command(arguments):
+    """Classify images with Apertus and saved heads: given files, or a part of the data scored with metric.py."""
+    from zero_shot import load_model
+
+    processor, model = load_model(arguments)
+    device = model.device
+    saved, heads, mean, std = load_heads(arguments.heads, device)
+    system_prompt = PROMPTS[saved["prompt"]]()
+    layers, pooling = saved["layers"], saved["pooling"]
+    image_size = saved.get("image_size", arguments.image_size)
+    print(f"heads: layers {layers}, {pooling}, {'mlp ' + str(saved['hidden']) if saved['hidden'] else 'linear'}, "
+          f"prompt {saved['prompt']} | {arguments.quantization} | image size {image_size}", flush=True)
+
+    def classify(row, image_file, with_context):
+        image = common.prepare_image(image_file, image_size)
+        feature, _ = image_features(model, processor, row, image, layers, with_context, system_prompt)
+        x = select(feature[None], list(range(len(layers))), pooling)
+        return {d: p[0] for d, p in predict(heads, mean, std, x, device).items()}
+
+    if arguments.images:
+        empty = {"product_title": "", "brand": "", "product_type": "", "category": "", "subcategory": ""}
+        for image_file in arguments.images:
+            started = time.time()
+            probabilities = classify(empty, image_file, False)
+            print(f"\n{image_file} ({time.time() - started:.2f} s)")
+            for d in common.DIMENSIONS:
+                order = probabilities[d].argsort()[::-1][:2]
+                print(f"  {d:20} " + ", ".join(f"{common.CLASSES[d][i]} {probabilities[d][i]:.2f}" for i in order))
+        return
+
+    parts = load_parts(arguments.data_dir)
+    metric = common.load_metric(arguments.data_dir)
+    for part in arguments.parts:
+        rows = parts[part] if arguments.limit == 0 else parts[part].head(arguments.limit)
+        for with_context in (True, False) if part == "holdout" else (True,):
+            answers, started = {}, time.time()
+            for row in tqdm(rows.to_dict("records"), desc=f"{part} context {with_context}", mininterval=30):
+                probabilities = classify(row, row["image_file"], with_context)
+                answers[row["image_id"]] = {d: common.CLASSES[d][int(p.argmax())] for d, p in probabilities.items()}
+            speed = len(rows) / (time.time() - started)
+            print(f"\n===== {part}, context {'on' if with_context else 'off'}: {len(rows)} images, "
+                  f"{speed:.2f} images/s, peak {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB", flush=True)
+            if part == "holdout":
+                common.print_metrics(common.score_rows(metric, rows, answers, {}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["extract", "fit"])
-    parser.add_argument("--data-dir", type=Path, required=True)
+    parser.add_argument("command", choices=["extract", "fit", "predict"])
+    parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--features-dir", type=Path, default=Path("features"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--model", default="swiss-ai/Apertus-v1.5-8B")
@@ -339,9 +412,12 @@ def main():
                         help="share of train images also extracted without the product context")
     parser.add_argument("--hidden", type=int, nargs="+", default=[0], help="0 for linear heads, else MLP width")
     parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--only", help="fit one configuration, LAYERS:POOLING:HIDDEN, e.g. 24:both:1024")
+    parser.add_argument("--heads", type=Path, default=Path("outputs/heads_best.pt"), help="for predict")
+    parser.add_argument("--images", nargs="+", type=Path, help="for predict: image files, without context")
     parser.add_argument("--seed", type=int, default=common.SEED)
     arguments = parser.parse_args()
-    extract(arguments) if arguments.command == "extract" else fit(arguments)
+    {"extract": extract, "fit": fit, "predict": predict_command}[arguments.command](arguments)
 
 
 if __name__ == "__main__":
