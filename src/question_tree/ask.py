@@ -3,8 +3,12 @@
 One request holds one question, with the image first. The server caches the image, so every further question on
 the same image costs a fraction of the first one. Answers are appended to a jsonl file as (image_id, key, answer),
 and a rerun only asks what is missing.
+
+    cd src
+    python -m question_tree.ask --set reference_holdout
 """
 
+import argparse
 import json
 import re
 import time
@@ -12,10 +16,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
+from . import data
 from .client import image_message, post_chat, schema_format
-from .config import DATA_DIR, GROUP_ROBUST_QUESTIONS, WORKERS
+from .config import DATA_DIR, GROUP_ROBUST_QUESTIONS, MODEL_8B, STORE, WORKERS
 from .images import data_url, prepared_image
-from .questions import ASKED_TOGETHER, QUESTIONS, SYSTEM
+from .questions import ASKED_TOGETHER, QUESTIONS, SYSTEM, TREE_QUESTIONS
 
 
 def ask_alone(model, image_url, key, row):
@@ -104,3 +109,22 @@ def read_answers(path):
     records = [json.loads(line) for line in path.read_text().splitlines()]
     table = pd.DataFrame(records).drop_duplicates(["image_id", "key"], keep="last")
     return table.pivot(index="image_id", columns="key", values="answer")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Ask the questions for one of the image sets and store the answers.")
+    parser.add_argument("--set", required=True, choices=["tune", "test", "benchmark", "reference_holdout"])
+    parser.add_argument("--model", default=MODEL_8B)
+    parser.add_argument("--all-questions", action="store_true", help="every question in questions.py, not only those of the final tree")
+    parser.add_argument("--no-grouping", action="store_true", help="ask every question alone")
+    arguments = parser.parse_args()
+    train = data.load_train()
+    rows = data.reference_holdout(train) if arguments.set == "reference_holdout" else data.image_sets(train)[arguments.set]
+    keys = list(QUESTIONS) if arguments.all_questions else TREE_QUESTIONS
+    path = STORE / f"answers_{arguments.set}_{arguments.model}.jsonl"
+    speed = collect(arguments.model, rows, keys, path, group=GROUP_ROBUST_QUESTIONS and not arguments.no_grouping)
+    print(f"{len(rows)} images, {speed:.2f} images/s, answers in {path.name}")
+
+
+if __name__ == "__main__":
+    main()

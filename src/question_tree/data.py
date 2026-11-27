@@ -74,3 +74,15 @@ def image_sets(train):
     }
     by_id = train.set_index("image_id")
     return {name: by_id.loc[image_ids].reset_index() for name, image_ids in ids.items()}
+
+
+def reference_holdout(train):
+    """The 600-image holdout of the reference notebook, which the trained methods in this repository use.
+
+    It comes from common.split_holdout, so the question tree is scored on exactly the images that the
+    classification heads and the LoRA finetune are scored on.
+    """
+    import common  # the shared module of the local pipeline, next to this package
+
+    _, holdout = common.split_holdout(common.read_part(DATA_DIR / "train.csv"))
+    return train[train["image_id"].isin(set(holdout["image_id"]))].reset_index(drop=True)
