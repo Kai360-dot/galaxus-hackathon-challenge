@@ -10,10 +10,13 @@ Two steps:
 
 Per image we keep, for a few layers, the hidden state of the last prompt token and the mean over the vision tokens.
 Train images with a left or right perspective and no text also get a mirrored copy (left and right swapped).
+
+Context dropout: in production the product context can be missing, so a third of the train images (fixed seed) is
+also extracted without it, with the same labels. The holdout is extracted both ways, to score both cases.
 """
 
 import argparse
-import json
+import random
 import time
 from pathlib import Path
 
@@ -30,6 +33,7 @@ SYSTEM_PROMPT = (
 )
 DEFAULT_LAYERS = (8, 16, 24, 32)
 SHARD_SIZE = 500
+NO_CONTEXT_SHARE = 1 / 3
 
 MIRRORED_PERSPECTIVES = {
     "front_angle_left": "front_angle_right", "front_angle_right": "front_angle_left",
@@ -59,11 +63,21 @@ def is_mirrorable(row):
     )
 
 
-def extraction_jobs(part, rows, mirror):
-    """(image_id, row, mirrored) per image to extract; mirrored copies only for train."""
-    jobs = [(row["image_id"], row, False) for row in rows.to_dict("records")]
-    if mirror and part == "train":
-        jobs += [(row["image_id"], row, True) for row in rows.to_dict("records") if is_mirrorable(row)]
+def extraction_jobs(part, rows, mirror, no_context_share):
+    """(image_id, row, mirrored, with_context) per feature row to extract.
+
+    train: every image with context, mirrored copies, and a share of the images again without context.
+    holdout: every image with and without context. dev: with context.
+    """
+    records = rows.to_dict("records")
+    jobs = [(row["image_id"], row, False, True) for row in records]
+    if part == "train":
+        if mirror:
+            jobs += [(row["image_id"], row, True, True) for row in records if is_mirrorable(row)]
+        dropped = random.Random(common.SEED).sample(records, round(no_context_share * len(records)))
+        jobs += [(row["image_id"], row, False, False) for row in dropped]
+    elif part == "holdout":
+        jobs += [(row["image_id"], row, False, False) for row in records]
     return jobs
 
 
@@ -112,7 +126,7 @@ def extract(arguments):
     print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU", flush=True)
     for part in arguments.parts:
         rows = parts[part] if arguments.limit == 0 else parts[part].head(arguments.limit)
-        jobs = extraction_jobs(part, rows, arguments.mirror)
+        jobs = extraction_jobs(part, rows, arguments.mirror, arguments.no_context_share)
         part_dir = arguments.features_dir / part
         part_dir.mkdir(parents=True, exist_ok=True)
         started, done = time.time(), 0
@@ -122,15 +136,18 @@ def extract(arguments):
                 continue  # resume: this shard is already extracted
             shard = jobs[shard_start : shard_start + SHARD_SIZE]
             features, vision_counts = [], []
-            for image_id, row, mirrored in tqdm(shard, desc=f"{part} shard {shard_start // SHARD_SIZE}", mininterval=30):
+            for image_id, row, mirrored, with_context in tqdm(
+                shard, desc=f"{part} shard {shard_start // SHARD_SIZE}", mininterval=30
+            ):
                 image = common.prepare_image(row["image_file"], arguments.image_size, mirrored=mirrored)
-                feature, vision_count = image_features(model, processor, row, image, arguments.layers, True)
+                feature, vision_count = image_features(model, processor, row, image, arguments.layers, with_context)
                 features.append(feature)
                 vision_counts.append(vision_count)
             np.savez(
                 shard_path,
                 image_ids=np.array([job[0] for job in shard]),
                 mirrored=np.array([job[2] for job in shard]),
+                context=np.array([job[3] for job in shard]),
                 features=np.stack(features),
                 layers=np.array(arguments.layers),
             )
@@ -150,6 +167,7 @@ def load_features(features_dir, part):
     return (
         np.concatenate([shard["image_ids"] for shard in loaded]),
         np.concatenate([shard["mirrored"] for shard in loaded]),
+        np.concatenate([shard["context"] for shard in loaded]),
         np.concatenate([shard["features"] for shard in loaded]),
         [int(layer) for layer in loaded[0]["layers"]],
     )
@@ -229,12 +247,17 @@ def fit(arguments):
     parts = load_parts(arguments.data_dir)
     metric = common.load_metric(arguments.data_dir)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_ids, train_mirrored, train_features, layers = load_features(arguments.features_dir, "train")
-    holdout_ids, _, holdout_features, _ = load_features(arguments.features_dir, "holdout")
+    train_ids, train_mirrored, train_context, train_features, layers = load_features(arguments.features_dir, "train")
+    all_holdout_ids, _, holdout_context, all_holdout_features, _ = load_features(arguments.features_dir, "holdout")
     y = targets(parts["train"], train_ids, train_mirrored)
+    # The main score is with context (as on Kaggle); the copies without context show what production loses.
+    holdout_ids, holdout_features = all_holdout_ids[holdout_context], all_holdout_features[holdout_context]
+    bare_ids, bare_features = all_holdout_ids[~holdout_context], all_holdout_features[~holdout_context]
     holdout_rows = parts["holdout"].set_index("image_id").loc[holdout_ids].reset_index()
-    print(f"train {len(train_ids)} feature rows ({int(train_mirrored.sum())} mirrored) | holdout {len(holdout_ids)} | "
-          f"layers {layers}")
+    bare_rows = parts["holdout"].set_index("image_id").loc[bare_ids].reset_index()
+    print(f"train {len(train_ids)} feature rows ({int(train_mirrored.sum())} mirrored, "
+          f"{int((~train_context).sum())} without context) | holdout {len(holdout_ids)} with context, "
+          f"{len(bare_ids)} without | layers {layers}")
 
     configurations = [([layers.index(l)], pooling) for l in layers for pooling in ("last", "mean", "both")]
     configurations.append((list(range(len(layers))), "both"))
@@ -245,9 +268,15 @@ def fit(arguments):
                                            arguments.epochs, device, arguments.seed)
             probabilities = predict(heads, mean, std, select(holdout_features, layer_indices, pooling), device)
             metrics = common.score_rows(metric, holdout_rows, answers_from(probabilities, holdout_ids), {})
+            bare_score = float("nan")
+            if len(bare_ids):
+                bare_probabilities = predict(heads, mean, std, select(bare_features, layer_indices, pooling), device)
+                bare_metrics = common.score_rows(metric, bare_rows, answers_from(bare_probabilities, bare_ids), {})
+                bare_score = bare_metrics["overall"]["f1_macro"]
             name = f"layers {[layers[i] for i in layer_indices]} {pooling:4} {'mlp' if hidden else 'linear'}"
             results.append((metrics["overall"]["f1_macro"], name, layer_indices, pooling, hidden, metrics))
-            print(f"{name:40} macro F1 {metrics['overall']['f1_macro']:.3f} | weighted {metrics['overall']['f1_weighted']:.3f}"
+            print(f"{name:40} macro F1 {metrics['overall']['f1_macro']:.3f} (no context {bare_score:.3f}) | "
+                  f"weighted {metrics['overall']['f1_weighted']:.3f}"
                   + "".join(f" | {d[:8]} {metrics[d]['f1_macro']:.2f}" for d in common.DIMENSIONS if d in metrics),
                   flush=True)
 
@@ -258,7 +287,7 @@ def fit(arguments):
     # Retrain the best configuration on train + holdout? Not yet: the holdout stays our honest check.
     _, _, layer_indices, pooling, hidden, _ = best
     if (arguments.features_dir / "dev").exists():
-        dev_ids, _, dev_features, _ = load_features(arguments.features_dir, "dev")
+        dev_ids, _, _, dev_features, _ = load_features(arguments.features_dir, "dev")
         heads, mean, std = train_heads(select(train_features, layer_indices, pooling), y, hidden,
                                        arguments.epochs, device, arguments.seed)
         dev_answers = answers_from(predict(heads, mean, std, select(dev_features, layer_indices, pooling), device), dev_ids)
@@ -289,6 +318,8 @@ def main():
     parser.add_argument("--parts", nargs="+", default=["holdout", "train", "dev"])
     parser.add_argument("--limit", type=int, default=0, help="images per part, 0 for all (for quick tests)")
     parser.add_argument("--no-mirror", dest="mirror", action="store_false")
+    parser.add_argument("--no-context-share", type=float, default=NO_CONTEXT_SHARE,
+                        help="share of train images also extracted without the product context")
     parser.add_argument("--hidden", type=int, nargs="+", default=[0], help="0 for linear heads, else MLP width")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--seed", type=int, default=common.SEED)
