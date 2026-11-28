@@ -11,7 +11,8 @@ lora_classifier.py and lora_atomic.py write it. A .csv file holds one row per im
 order, as oof.py and ensemble.py write it.
 
 A source may cover only some dimensions, such as a model for the perspective alone. Each dimension is averaged over
-the sources that have it. A weight per source can follow the name (--source lora:2=...).
+the sources that have it. A source can also be limited to some dimensions with @ (--source
+lora@text_language+text_classification=...), and a weight can follow (--source lora:2=...).
 
 The holdout images that every source has are scored with metric.py: each source alone (a source without all six
 dimensions is filled up from the first source), then the mean. Every image of sample_submission.csv that all
@@ -52,14 +53,18 @@ def read_file(path):
 def read_source(spec):
     """(name, weight, image_id -> dimension -> probabilities) of a --source argument."""
     label, files = spec.split("=", 1)
-    name, _, weight = label.partition(":")
+    label, _, weight = label.partition(":")
+    name, _, only = label.partition("@")
+    kept = [d for d in common.DIMENSIONS if not only or d in only.split("+")]
+    assert not only or set(only.split("+")) <= set(common.DIMENSIONS), f"unknown dimension in {label}"
     probabilities = {}
     for entry in files.split(","):
         path = Path(entry).expanduser()
         paths = sorted(path.glob("*.jsonl")) if path.is_dir() else [path]
         for file in paths:
             probabilities.update(read_file(file))
-    return name, float(weight or 1), probabilities
+    probabilities = {image_id: {d: p[d] for d in kept if d in p} for image_id, p in probabilities.items()}
+    return label, float(weight or 1), probabilities
 
 
 def mean_of(sources, image_id):
@@ -90,6 +95,7 @@ def main():
     arguments = parser.parse_args()
 
     sources = [read_source(spec) for spec in arguments.source]
+    assert all(d in sources[0][2][next(iter(sources[0][2]))] for d in common.DIMENSIONS), "the first source needs all six dimensions"
     for name, weight, probabilities in sources:
         print(f"{name}: {len(probabilities)} images, weight {weight:g}")
     shared = set.intersection(*(set(p) for _, _, p in sources))
