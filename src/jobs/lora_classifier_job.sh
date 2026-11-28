@@ -4,6 +4,7 @@
 # MODE=train (default): setup, Kaggle data, a trial run of two minutes on a few images that goes through every
 #   step, then the real run of MINUTES minutes with a holdout score and an uploaded checkpoint every 20 minutes,
 #   then holdout and dev predictions. Everything goes to RESULTS_REPO/RUN_NAME (private).
+# MODE=trial: only the trial run, to test the code on a small GPU for a few cents.
 # MODE=predict: the checkpoint of RUN_NAME from RESULTS_REPO predicts dev and, when the secret FINAL_PASSPHRASE is
 #   set, the final images. Predictions and the submission file go to RESULTS_REPO/RUN_NAME/final_run.
 #
@@ -55,12 +56,16 @@ rm data/hackapertus-galaxus.zip
 cd repo
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # images differ in size: avoid fragmentation
 
-if [ "$MODE" = train ]; then
+if [ "$MODE" = train ] || [ "$MODE" = trial ]; then
   step "trial run on a few images"
   python src/lora_classifier.py train --data-dir "$WORK/data" --output-dir "$WORK/trial" --image-size "$IMAGE_SIZE" \
     --minutes 2 --evaluate-minutes 1 --limit 160 --holdout-limit 48 --predict-limit 48 --calibration-images 64 \
     --log-every 2 ${EXTRA_ARGS:-} 2>&1 | quiet | tee "$LOGS/trial.log"
+fi
 
+if [ "$MODE" = trial ]; then
+  step "trial only"
+elif [ "$MODE" = train ]; then
   step "train $RUN_NAME for $MINUTES minutes"
   python src/lora_classifier.py train --data-dir "$WORK/data" --output-dir "$RUN" --image-size "$IMAGE_SIZE" \
     --minutes "$MINUTES" --results-repo "$RESULTS_REPO" --run-name "$RUN_NAME" ${EXTRA_ARGS:-} 2>&1 \
