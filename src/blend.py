@@ -4,15 +4,19 @@
         --source lora=runs/lora_classifier/predictions \
         --source heads=outputs/oof_mirror/holdout_probabilities.npy,outputs/oof_mirror/dev_probabilities.npy
 
-A source is a name and its prediction files: folders (every .jsonl and .npy in them) or single files, separated by
-commas. A .jsonl file holds one line per image, {"image_id", "probabilities": {dimension: {class: p}}}, as
-lora_classifier.py and lora_atomic.py write it. A .npy file holds image_id -> dimension -> probabilities in
-common.CLASSES order, as oof.py and ensemble.py write it.
+A source is a name and its prediction files: folders (every .jsonl in them) or single files, separated by commas.
+A .jsonl file holds one line per image, {"image_id", "probabilities": {dimension: {class: p}}}, as
+lora_classifier.py and lora_atomic.py write it. A .csv file holds one row per image and one column
+"dimension:class" per probability. A .npy file holds image_id -> dimension -> probabilities in common.CLASSES
+order, as oof.py and ensemble.py write it.
 
-The holdout images that every source has are scored with metric.py: each source alone, then the mean. A weight per
-source can follow the name (--source lora:2=...). Every image of sample_submission.csv that all sources predicted
-gets the class with the highest mean probability; the other rows keep what --base holds (default: the constants of
-sample_submission.csv).
+A source may cover only some dimensions, such as a model for the perspective alone. Each dimension is averaged over
+the sources that have it. A weight per source can follow the name (--source lora:2=...).
+
+The holdout images that every source has are scored with metric.py: each source alone (a source without all six
+dimensions is filled up from the first source), then the mean. Every image of sample_submission.csv that all
+sources predicted gets the class with the highest mean probability; the other rows keep what --base holds
+(default: the constants of sample_submission.csv).
 """
 
 import argparse
@@ -23,7 +27,6 @@ import numpy as np
 import pandas as pd
 
 import common
-from heads import load_parts
 
 
 def read_file(path):
@@ -36,9 +39,14 @@ def read_file(path):
                 d: np.array([record["probabilities"][d][name] for name in common.CLASSES[d]], dtype=np.float64)
                 for d in common.DIMENSIONS}
         return result
+    if path.suffix == ".csv":
+        table = pd.read_csv(path, dtype={"image_id": str}).set_index("image_id")
+        covered = [d for d in common.DIMENSIONS if all(f"{d}:{name}" in table.columns for name in common.CLASSES[d])]
+        values = {d: table[[f"{d}:{name}" for name in common.CLASSES[d]]].to_numpy(dtype=np.float64) for d in covered}
+        return {image_id: {d: values[d][k] for d in covered} for k, image_id in enumerate(table.index)}
     loaded = np.load(path, allow_pickle=True).item()
-    return {str(image_id): {d: np.asarray(p[d], dtype=np.float64) for d in common.DIMENSIONS}
-            for image_id, p in loaded.items() if isinstance(p, dict) and all(d in p for d in common.DIMENSIONS)}
+    return {str(image_id): {d: np.asarray(p[d], dtype=np.float64) for d in common.DIMENSIONS if d in p}
+            for image_id, p in loaded.items() if isinstance(p, dict)}
 
 
 def read_source(spec):
@@ -48,16 +56,19 @@ def read_source(spec):
     probabilities = {}
     for entry in files.split(","):
         path = Path(entry).expanduser()
-        paths = sorted([*path.glob("*.jsonl"), *path.glob("*.npy")]) if path.is_dir() else [path]
+        paths = sorted(path.glob("*.jsonl")) if path.is_dir() else [path]
         for file in paths:
             probabilities.update(read_file(file))
     return name, float(weight or 1), probabilities
 
 
 def mean_of(sources, image_id):
-    """dimension -> weighted mean of the sources' probabilities for one image."""
-    total = sum(weight for _, weight, _ in sources)
-    return {d: sum(weight * p[image_id][d] for _, weight, p in sources) / total for d in common.DIMENSIONS}
+    """dimension -> weighted mean of the probabilities of the sources that have this dimension, for one image."""
+    result = {}
+    for d in common.DIMENSIONS:
+        having = [(weight, p[image_id][d]) for _, weight, p in sources if d in p[image_id]]
+        result[d] = sum(weight * values for weight, values in having) / sum(weight for weight, _ in having)
+    return result
 
 
 def answers_of(probabilities):
@@ -83,13 +94,13 @@ def main():
         print(f"{name}: {len(probabilities)} images, weight {weight:g}")
     shared = set.intersection(*(set(p) for _, _, p in sources))
 
-    holdout = load_parts(arguments.data_dir)["holdout"]
+    _, holdout = common.split_holdout(common.read_part(arguments.data_dir / "train.csv"))
     rows = holdout[holdout["image_id"].isin(shared)].reset_index(drop=True)
     if len(rows):
         metric = common.load_metric(arguments.data_dir)
         print(f"\nholdout: {len(rows)} of {len(holdout)} images are in every source\n")
         for source in sources:
-            alone = {image_id: source[2][image_id] for image_id in rows["image_id"]}
+            alone = {image_id: {**sources[0][2][image_id], **source[2][image_id]} for image_id in rows["image_id"]}
             print(line(source[0], common.score_rows(metric, rows, answers_of(alone), {})))
         if len(sources) > 1:
             blended = {image_id: mean_of(sources, image_id) for image_id in rows["image_id"]}
@@ -101,7 +112,8 @@ def main():
     submission = pd.read_csv(base, dtype=str, keep_default_na=False).set_index("image_id")
     predicted = [image_id for image_id in submission.index if image_id in shared]
     answers = answers_of({image_id: mean_of(sources, image_id) for image_id in predicted})
-    submission.loc[predicted, list(common.DIMENSIONS)] = [[answers[i][d] for d in common.DIMENSIONS] for i in predicted]
+    if predicted:
+        submission.loc[predicted, list(common.DIMENSIONS)] = [[answers[i][d] for d in common.DIMENSIONS] for i in predicted]
     for d in common.DIMENSIONS:
         assert submission[d].isin(common.CLASSES[d]).all(), f"{d} has an invalid cell"
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
