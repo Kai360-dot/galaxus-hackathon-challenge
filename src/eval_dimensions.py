@@ -2,8 +2,8 @@ import argparse
 import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score
-from metric import DIMENSIONS, VALID_CLASSES
 from label_sanitizer import sanitize_dataframe
+from metric import DIMENSIONS, VALID_CLASSES
 
 
 def evaluate_predictions(truth_df: pd.DataFrame, pred_df: pd.DataFrame) -> float:
@@ -27,7 +27,9 @@ def evaluate_predictions(truth_df: pd.DataFrame, pred_df: pd.DataFrame) -> float
         print(f"{d:<22} | {dim_macro:>8.4f} | {len(y_true):>11d}")
 
         for cls_name, score in zip(classes, per_cls):
-            all_class_f1.append((d, cls_name, float(score), int((truth.loc[valid_mask, d] == cls_name).sum())))
+            all_class_f1.append(
+                (d, cls_name, float(score), int((truth.loc[valid_mask, d] == cls_name).sum()))
+            )
 
     overall_macro_f1 = float(np.mean([x[2] for x in all_class_f1]))
     print("-" * 62)

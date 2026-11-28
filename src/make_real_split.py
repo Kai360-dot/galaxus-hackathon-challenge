@@ -15,8 +15,9 @@ def main():
 
     df = sanitize_dataframe(pd.read_csv(args.in_csv), is_ground_truth=True)
 
-    # Stratify on joint text_classification + perspective to preserve rare tail classes
-    strat_key = df["text_classification"].fillna("none") + "__" + df["perspective"].fillna("none")
+    strat_key = (
+        df["text_classification"].fillna("none") + "__" + df["perspective"].fillna("none")
+    )
     counts = strat_key.value_counts()
     strat_key = strat_key.where(strat_key.map(counts) >= 2, "rare_bucket")
 
@@ -25,7 +26,10 @@ def main():
     )
     train_df.to_csv(args.train_out, index=False)
     val_df.to_csv(args.val_out, index=False)
-    print(f"Created real split: {len(train_df)} train rows -> {args.train_out} | {len(val_df)} val rows -> {args.val_out}")
+    print(
+        f"Created real split: {len(train_df)} train rows -> {args.train_out} | "
+        f"{len(val_df)} val rows -> {args.val_out}"
+    )
 
 
 if __name__ == "__main__":

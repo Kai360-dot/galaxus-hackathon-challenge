@@ -3,7 +3,6 @@ from typing import Tuple
 import pandas as pd
 from metric import DIMENSIONS, VALID_CLASSES
 
-# Common VLM / annotation aliases mapped to canonical Galaxus classes
 LABEL_ALIASES = {
     "subject": {
         "product": "full_product",
@@ -90,8 +89,9 @@ def normalize_token(val) -> str:
     return s
 
 
-def canonicalize_label(dim: str, raw_val, allow_none_for_missing: bool = False) -> Tuple[str, bool]:
-    """Returns (clean_label, is_valid_original)."""
+def canonicalize_label(
+    dim: str, raw_val, allow_none_for_missing: bool = False
+) -> Tuple[str, bool]:
     norm = normalize_token(raw_val)
     if not norm or norm in {"nan", "null", "na", "unknown"}:
         return ("" if allow_none_for_missing else DEFAULT_FALLBACK[dim]), False
@@ -108,7 +108,6 @@ def canonicalize_label(dim: str, raw_val, allow_none_for_missing: bool = False) 
 
 
 def sanitize_dataframe(df: pd.DataFrame, is_ground_truth: bool = False) -> pd.DataFrame:
-    """Cleans all 6 dimension columns and enforces cross-dimension consistency."""
     out = df.copy()
     anomaly_counts = {d: 0 for d in DIMENSIONS}
 
@@ -126,7 +125,6 @@ def sanitize_dataframe(df: pd.DataFrame, is_ground_truth: bool = False) -> pd.Da
             cleaned.append(lbl)
         out[d] = cleaned
 
-    # Cross-dimension consistency repair (for predictions and noisy labels)
     if not is_ground_truth and "text_classification" in out.columns and "text_language" in out.columns:
         no_text_mask = out["text_classification"].isin(["none", "brand_logo_only"])
         out.loc[no_text_mask, "text_language"] = "none"
