@@ -5,7 +5,7 @@ The same text as [ShipHappens_Report.pdf](ShipHappens_Report.pdf). Its source is
 - **Challenge partner:** Digitec Galaxus
 - **Challenge:** Hack Apertus x Galaxus: product image classification
 - **Event:** On-site Zurich
-- **Team:** ShipHappens: Kai Ruth, MAC, Hossam
+- **Team:** ShipHappens: Kai Ruth, Marc-Andre Clenin, Hossam Elshahaby, Tenzin Jhopee
 - **Demo:** `link to video`
 
 ## 1. Summary
