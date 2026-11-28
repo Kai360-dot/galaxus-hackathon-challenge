@@ -35,8 +35,12 @@ PY
 trap upload_logs EXIT
 
 step "setup"
-command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git >/dev/null)
-git clone -q "$REPO_URL" repo && git -C repo checkout -q "$COMMIT"
+if [ -d /code/repo/src ]; then  # the launcher put the code of this commit there
+  cp -r /code/repo repo
+else
+  command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git >/dev/null)
+  git clone -q "$REPO_URL" repo && git -C repo checkout -q "$COMMIT"
+fi
 pip install -q uv
 uv pip install --system -q \
   "transformers[torch,vision,audio] @ git+https://github.com/swiss-ai/transformers.git@3797303dda74844e3d1f8977ff5518bb91f818b4" \

@@ -29,10 +29,22 @@ HfApi().create_repo(sys.argv[1], repo_type="dataset", private=True, exist_ok=Tru
 print(f"results repo {sys.argv[1]} (private)")
 PY
 
+# The code of this commit also goes to the private results repo. A job script can take it from there (as
+# lora_classifier_job.sh does), so it runs while the GitHub repository is private.
+archive=$(mktemp)
+git archive --format=tar.gz --prefix=repo/ "$COMMIT" src > "$archive"
+"$PYTHON" - "$RESULTS_REPO" "$archive" "$COMMIT" <<'PY'
+import sys
+from huggingface_hub import HfApi
+HfApi().upload_file(path_or_fileobj=sys.argv[2], path_in_repo=f"code/{sys.argv[3]}.tar.gz", repo_id=sys.argv[1],
+                    repo_type="dataset")
+print(f"code of {sys.argv[3][:7]} uploaded")
+PY
+
 # Secrets go through a file readable only by us, removed right after the launch.
 secrets=$(mktemp)
 chmod 600 "$secrets"
-trap 'rm -f "$secrets"' EXIT
+trap 'rm -f "$secrets" "$archive"' EXIT
 {
   echo "HF_TOKEN=$(cat ~/.cache/huggingface/token)"
   echo "KAGGLE_CREDENTIALS_B64=$(base64 < ~/.kaggle/credentials.json | tr -d '\n')"  # no -w0: macOS lacks it
@@ -50,6 +62,6 @@ done
   ${optional[@]+"${optional[@]}"} \
   --secrets-file "$secrets" \
   pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel \
-  bash -c "python -c \"import urllib.request as u; open('/tmp/job.sh', 'wb').write(u.urlopen(\
-'https://raw.githubusercontent.com/Kai360-dot/galaxus-hackathon-challenge/$COMMIT/src/jobs/$JOB').read())\" \
-&& bash /tmp/job.sh"
+  bash -c "pip install -q huggingface_hub && python -c \"import tarfile; from huggingface_hub import hf_hub_download; \
+tarfile.open(hf_hub_download('$RESULTS_REPO', 'code/$COMMIT.tar.gz', repo_type='dataset')).extractall('/code')\" \
+&& bash /code/repo/src/jobs/$JOB"
