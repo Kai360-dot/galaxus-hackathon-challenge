@@ -8,7 +8,8 @@ A source is a name and its prediction files: folders (every .jsonl in them) or s
 A .jsonl file holds one line per image, {"image_id", "probabilities": {dimension: {class: p}}}, as
 lora_classifier.py and lora_atomic.py write it. A .csv file holds one row per image and one column
 "dimension:class" per probability. A .npy file holds image_id -> dimension -> probabilities in common.CLASSES
-order, as oof.py and ensemble.py write it.
+order, as oof.py and ensemble.py write it, or image_id -> the ten perspective probabilities, as dino_finetune.py
+writes it.
 
 A source may cover only some dimensions, such as a model for the perspective alone. Each dimension is averaged over
 the sources that have it. A source can also be limited to some dimensions with @ (--source
@@ -46,8 +47,13 @@ def read_file(path):
         values = {d: table[[f"{d}:{name}" for name in common.CLASSES[d]]].to_numpy(dtype=np.float64) for d in covered}
         return {image_id: {d: values[d][k] for d in covered} for k, image_id in enumerate(table.index)}
     loaded = np.load(path, allow_pickle=True).item()
-    return {str(image_id): {d: np.asarray(p[d], dtype=np.float64) for d in common.DIMENSIONS if d in p}
-            for image_id, p in loaded.items() if isinstance(p, dict)}
+    result = {}
+    for image_id, p in loaded.items():
+        if isinstance(p, dict):
+            result[str(image_id)] = {d: np.asarray(p[d], dtype=np.float64) for d in common.DIMENSIONS if d in p}
+        elif len(p) == len(common.CLASSES["perspective"]):  # dino_finetune.py: the perspective probabilities alone
+            result[str(image_id)] = {"perspective": np.asarray(p, dtype=np.float64)}
+    return result
 
 
 def read_source(spec):
