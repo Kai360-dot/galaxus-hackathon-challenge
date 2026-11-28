@@ -43,7 +43,7 @@ def tuned_probabilities(run_dirs, part):
     Train images get the prediction of the half model that never saw them; other parts the mean of both.
     """
     runs = [{name: np.load(Path(d) / f"{name}_probabilities.npy", allow_pickle=True).item()
-             for name in ("other_half", "holdout", "dev") if (Path(d) / f"{name}_probabilities.npy").exists()} for d in run_dirs]
+             for name in ("other_half", "holdout", "dev", "final") if (Path(d) / f"{name}_probabilities.npy").exists()} for d in run_dirs]
     flat = lambda p: np.concatenate([p[d] for d in TUNED_DIMENSIONS]).astype(np.float32)
     if part == "train":
         return {i: flat(p) for r in runs for i, p in r["other_half"].items()}
