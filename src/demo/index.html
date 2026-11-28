@@ -170,7 +170,6 @@
   #detail .l { display: grid; grid-template-columns: 1fr 48px; gap: 10px; align-items: center; }
   #detail .l span { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
   #detail .close { float: right; background: none; border: 1.5px solid var(--fg); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
-  footer { color: var(--muted); font-size: .85rem; padding: 0 max(40px, env(safe-area-inset-left)) 30px; }
   @media (prefers-reduced-motion: reduce) { .card { transition: none !important; } }
 
   /* Desktop: the whole page fills exactly one screen, no scrolling; the main image takes the height that is left. */
@@ -207,7 +206,6 @@
     .column h3 { font-size: 1.05rem; }
     .column .head2 { font-size: .9rem; }
     .column .cards { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); margin-top: 2px; }
-    footer { flex: none; padding-bottom: 8px; font-size: .75rem; }
   }
   @media (min-width: 1101px) and (max-height: 820px) {
     .facts2, .why { display: none; }
@@ -291,7 +289,6 @@
         </section>
       </main>
     </div>
-    <footer>Demo prototype built at Hack Apertus Zurich with Apertus v1.5 8B. Not a real shop.</footer>
   </div>
 
   <aside id="detail" hidden></aside>
