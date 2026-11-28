@@ -183,7 +183,7 @@ def main():
     use_4bit = vram_gb < 32.0
     print(f"Detected GPU VRAM: {vram_gb:.1f} GB | Using 4-bit QLoRA: {use_4bit}")
 
-    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
     if use_4bit:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -193,16 +193,15 @@ def main():
             llm_int8_skip_modules=["vision_tokenizer", "vqgan", "lm_head"],
         )
         model = AutoModelForMultimodalLM.from_pretrained(
-            MODEL_ID, quantization_config=bnb_config, device_map={"": 0}, low_cpu_mem_usage=True
+            MODEL_ID, quantization_config=bnb_config, device_map={"": 0}, low_cpu_mem_usage=True, trust_remote_code=True
         )
         for name, module in model.named_modules():
             if "vision" in name or "vq" in name:
                 module.to(torch.float32)
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     else:
-        # L40S (48GB) / A100 (80GB): native bf16 keeps vision_tokenizer in float32 automatically
         model = AutoModelForMultimodalLM.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto", low_cpu_mem_usage=True
+            MODEL_ID, torch_dtype=torch.bfloat16, device_map="auto", low_cpu_mem_usage=True, trust_remote_code=True
         )
         model.gradient_checkpointing_enable()
 
