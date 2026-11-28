@@ -4,6 +4,10 @@
 #
 #     JOB=lora_job.sh EPOCHS=1 src/jobs/launch_job.sh <private-results-repo> [flavor] [image-size]
 #     JOB=heads_job.sh src/jobs/launch_job.sh your-user/galaxus-work l40sx1 512
+#     JOB=lora_classifier_job.sh MINUTES=100 src/jobs/launch_job.sh your-user/galaxus-work h200 512
+#
+# MODE, MINUTES and RUN_NAME are passed on to the job when set. FINAL_PASSPHRASE, when set, goes to the job as a
+# secret (for the final images; never write it into a file of this repository).
 set -euo pipefail
 RESULTS_REPO=${1:?private results dataset repo, e.g. your-user/galaxus-work}
 FLAVOR=${2:-l40sx1}
@@ -31,11 +35,19 @@ chmod 600 "$secrets"
 trap 'rm -f "$secrets"' EXIT
 {
   echo "HF_TOKEN=$(cat ~/.cache/huggingface/token)"
-  echo "KAGGLE_CREDENTIALS_B64=$(base64 -w0 ~/.kaggle/credentials.json)"
+  echo "KAGGLE_CREDENTIALS_B64=$(base64 < ~/.kaggle/credentials.json | tr -d '\n')"  # no -w0: macOS lacks it
+  if [ -n "${FINAL_PASSPHRASE:-}" ]; then echo "FINAL_PASSPHRASE=$FINAL_PASSPHRASE"; fi
 } > "$secrets"
+grep -q "^KAGGLE_CREDENTIALS_B64=." "$secrets" || { echo "the Kaggle credentials could not be read"; exit 1; }
 
-"$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}" \
+optional=()
+for name in MODE MINUTES RUN_NAME; do
+  if [ -n "${!name:-}" ]; then optional+=(--env "$name=${!name}"); fi
+done
+
+"$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}${MODE:+-$MODE}" \
   --env COMMIT="$COMMIT" --env RESULTS_REPO="$RESULTS_REPO" --env IMAGE_SIZE="$IMAGE_SIZE" --env EPOCHS="$EPOCHS" --env PROMPT="${PROMPT:-vague}" --env EXTRA_ARGS="${EXTRA_ARGS:-}" \
+  ${optional[@]+"${optional[@]}"} \
   --secrets-file "$secrets" \
   pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel \
   bash -c "python -c \"import urllib.request as u; open('/tmp/job.sh', 'wb').write(u.urlopen(\
