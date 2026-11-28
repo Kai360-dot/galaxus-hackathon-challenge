@@ -179,6 +179,12 @@ def main():
     def logo():
         return FileResponse(HERE / "hackapertus-logo-white.svg", media_type="image/svg+xml")
 
+    @app.get("/partner-logo")
+    def partner_logo():
+        # An optional partner logo for live presentations, kept out of the repository (see .gitignore).
+        path = HERE / "partner-logo.png"
+        return FileResponse(path, media_type="image/png") if path.exists() else Response(status_code=404)
+
     @app.post("/upload")
     async def upload(files: list[UploadFile] = File(...), title: str = Form("")):
         ids = []

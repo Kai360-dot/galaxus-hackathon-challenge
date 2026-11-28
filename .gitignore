@@ -49,3 +49,6 @@ predictions/
 features/
 runs/
 *.npz
+
+# Demo: a partner logo for live presentations stays local (a third-party trademark)
+src/demo/partner-logo*
