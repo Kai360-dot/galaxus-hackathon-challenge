@@ -140,7 +140,7 @@ def collate_fn(batch):
 
 
 def run_batched_inference(
-    model, processor, csv_path: str, img_dir: str, out_csv: str, batch_size: int = 24
+    model, processor, csv_path: str, img_dir: str, out_csv: str, batch_size: int = 32
 ) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     img_root = Path(img_dir)
@@ -284,7 +284,7 @@ def main():
     dataset = GalaxusMultimodalDataset(args.train_csv, args.img_dir, processor)
     train_args = TrainingArguments(
         output_dir=args.out_dir,
-        num_train_epochs=args.epochs,
+        max_steps=350,
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
