@@ -120,7 +120,6 @@
   .cta2 button { display: flex; align-items: center; justify-content: center; gap: 10px; background: #f2f2f2; border: 1px solid #cfcfcf; border-radius: 6px;
     padding: 13px; font-size: 1.1rem; cursor: pointer; color: #000; }
   .cta .icon, .cta2 .icon { stroke: currentColor; width: 22px; height: 22px; }
-  .free { color: var(--muted); margin-top: 26px; font-size: 1.05rem; }
 
   .board { margin-top: 56px; }
   .board h2 { display: flex; align-items: center; gap: 12px; }
@@ -128,27 +127,22 @@
   .board h2 button[aria-pressed="true"] { color: var(--fg); }
   .board h2 { flex-wrap: wrap; gap: 10px 26px; }
   .board h2 .n { font-size: .95rem; font-weight: 500; background: #ececec; border-radius: 999px; padding: 2px 10px; }
-  /* every class of the dimension side by side in one row, like the size tiles of a shop */
-  .columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(92px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 6px; }
-  .column { border: 1px solid #d6d6d6; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  .column.has { border-color: #9e9e9e; }
-  .column.empty-col { color: #a8a8a8; }
-  .column h3 { margin: 0; font-size: .92rem; font-weight: 500; line-height: 1.2; display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; min-height: 2.4em; }
-  .column h3 .dot { width: 11px; height: 11px; border-radius: 50%; background: #5cc15c; flex: 0 0 auto; margin-top: 3px; }
-  .column.empty-col h3 .dot { background: #e0e0e0; }
-  .column .head2 { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--muted); font-size: .8rem; }
-  .column .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  /* like the size tiles of the shop: one tile per class that occurs, the class of the main image outlined */
+  .columns { display: flex; flex-wrap: wrap; gap: 12px; }
+  .column { border: 1px solid #cfcfcf; border-radius: 6px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; width: 182px; }
+  .column.on { border: 2px solid #3c3c3c; padding: 15px 17px; }
+  .column h3 { margin: 0; font-size: 1.2rem; font-weight: 400; line-height: 1.25; display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .column h3 .dot { width: 13px; height: 13px; border-radius: 50%; background: #5cc15c; flex: 0 0 auto; margin-top: 5px; }
+  .column.arriving h3 .dot { background: #d0d0d0; }
+  .column .head2 { color: var(--muted); font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .column .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+  .columns .none { color: var(--muted); font-size: 1.05rem; padding: 4px 0; }
   .card { cursor: pointer; display: flex; flex-direction: column; gap: 2px; will-change: transform; min-width: 0; }
   .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--soft); border-radius: 6px; display: block; }
   .card .pct { color: var(--muted); font-size: .75rem; text-align: center; font-variant-numeric: tabular-nums; }
   .card.pending { opacity: .5; }
   .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--fg); }
-  .clock { width: 30px; height: 30px; flex: 0 0 auto; }
-  .clock circle { fill: none; stroke: #bdbdbd; stroke-width: 1.5; }
-  .clock .cam { fill: #7a7a7a; }
-  .clock .arrow { stroke: var(--s3); stroke-width: 2.8; fill: none; stroke-linecap: round; }
-  .clock .head { fill: var(--s3); }
 
   .shoot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 13px; font-size: 1.15rem; font-weight: 400;
     background: var(--dark); color: #fff; border-radius: 6px; cursor: pointer; }
@@ -240,7 +234,6 @@
               <button type="button" id="all-labels"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>All labels</button>
               <button type="button" id="reset"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>New product</button>
             </div>
-            <p class="free">Labeled on one GPU, no data leaves the server</p>
           </div>
           <div class="hidden-row" id="hidden-row" hidden></div>
         </div>
@@ -266,10 +259,6 @@ const DIMENSIONS = {
 };
 const NAMES = { perspective: "Perspective", subject: "Subject", background: "Background", individuals: "Person or animal",
   text_classification: "Text overlay", text_language: "Text language" };
-const ALWAYS_SHOWN = { subject: ["full_product", "detail_closeup", "packaging", "package_and_product", "infographic", "logo"] };
-// Where the front points, seen from above with the camera at 6 o'clock (labeling guideline), in degrees (0 = up).
-const FRONT_ANGLE = { front_head_on: 180, front_angle_left: 225, front_angle_right: 135, left_side: 270, right_side: 90,
-  back_head_on: 0, back_angle_left: 45, back_angle_right: 315 };
 
 let state = { version: -1, items: [], gallery: { shown: [], hidden: [] } };
 let dimension = "perspective";
@@ -277,28 +266,11 @@ let selected = null;
 const byId = () => Object.fromEntries(state.items.map((i) => [i.id, i]));
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 
-function clock(perspective) {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 30 30"); svg.setAttribute("class", "clock");
-  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "front points: " + perspective);
-  const add = (name, attrs) => { const n = document.createElementNS(ns, name); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); svg.append(n); };
-  add("circle", { cx: 15, cy: 15, r: 11 });
-  add("rect", { x: 12, y: 26.5, width: 6, height: 3, class: "cam" });
-  if (perspective in FRONT_ANGLE) {
-    const a = (FRONT_ANGLE[perspective] - 90) * Math.PI / 180, x = 15 + 9 * Math.cos(a), y = 15 + 9 * Math.sin(a);
-    add("line", { x1: 15, y1: 15, x2: x, y2: y, class: "arrow" });
-    add("circle", { cx: x, cy: y, r: 2.6, class: "head" });
-  } else {
-    add("circle", { cx: 15, cy: 15, r: perspective === "top_down" ? 3.5 : 6, class: perspective === "top_down" ? "head" : "arrow" });
-  }
-  return svg;
-}
 
 function card(item) {
   const c = el("div", "card" + (item.status === "done" ? "" : " pending"));
   c.dataset.id = item.id; c.tabIndex = 0;
-  const img = el("img"); img.src = "/image/" + item.id; img.alt = item.status === "done" ? item.top[dimension] : ""; c.append(img);
+  const img = el("img"); img.src = "/image/" + item.id; img.alt = item.status === "done" ? pretty(item.top[dimension]) : ""; c.append(img);
   c.append(el("div", "pct", item.status === "done" ? Math.round(item.labels[dimension][0][1] * 100) + "%" : (item.status === "error" ? "error" : "…")));
   c.onclick = () => { selected = item.id; renderDetail(); };
   c.onkeydown = (e) => { if (e.key === "Enter") c.onclick(); };
@@ -323,31 +295,36 @@ function renderCats() {
   tabs.replaceChildren(...Object.keys(DIMENSIONS).map((d) => {
     const b = el("button", "", NAMES[d]); b.type = "button"; b.setAttribute("aria-pressed", d === dimension);
     const wrap = el("span"); wrap.append(b);
-    if (d === dimension) { wrap.style.display = "inline-flex"; wrap.style.gap = "10px"; wrap.append(el("span", "n", DIMENSIONS[d].length)); }
+    if (d === dimension) { wrap.style.display = "inline-flex"; wrap.style.gap = "10px"; wrap.append(el("span", "n", classesShown().size)); }
     b.onclick = () => { dimension = d; renderCats(); renderColumns(); };
     return wrap;
   }));
 }
 
+const pretty = (cls) => { const t = cls.replaceAll("_", " "); return t[0].toUpperCase() + t.slice(1); };
+const classesShown = () => new Set(state.items.filter((i) => i.status === "done").map((i) => i.top[dimension]));
+
 function renderColumns() {
   const container = document.getElementById("columns");
+  const heroItem = state.items.find((i) => i.id === shownId);
   flip(container, () => {
     container.replaceChildren();
     const done = state.items.filter((i) => i.status === "done");
     const pending = state.items.filter((i) => i.status !== "done");
-    const used = new Set(done.map((i) => i.top[dimension]));
-    const keep = new Set([...(ALWAYS_SHOWN[dimension] || DIMENSIONS[dimension]), ...used]);
-    const tile = (name, members, cls) => {
-      const col = el("div", "column" + (members.length ? " has" : " empty-col"));
-      const h = el("h3"); h.append(el("span", "", name.replaceAll("_", " ")), el("span", "dot")); col.append(h);
-      const head2 = el("div", "head2"); head2.append(el("span", "", members.length ? `${members.length} photo${members.length > 1 ? "s" : ""}` : "–"));
-      if (dimension === "perspective" && cls) head2.append(clock(cls));
-      col.append(head2);
+    const used = classesShown();
+    const tile = (name, members, extra) => {
+      const col = el("div", "column" + extra);
+      const h = el("h3"); h.append(el("span", "", name), el("span", "dot")); col.append(h);
+      const mean = members.length && members[0].status === "done"
+        ? " · " + Math.round(100 * members.reduce((s, m) => s + m.labels[dimension][0][1], 0) / members.length) + "%" : "";
+      col.append(el("div", "head2", `${members.length} photo${members.length > 1 ? "s" : ""}${mean}`));
       const cards = el("div", "cards"); members.forEach((m) => cards.append(card(m))); col.append(cards);
       return col;
     };
-    if (pending.length) container.append(tile("arriving", pending, null));
-    DIMENSIONS[dimension].filter((c) => keep.has(c)).forEach((cls) => container.append(tile(cls, done.filter((i) => i.top[dimension] === cls), cls)));
+    DIMENSIONS[dimension].filter((c) => used.has(c)).forEach((cls) =>
+      container.append(tile(pretty(cls), done.filter((i) => i.top[dimension] === cls), heroItem && heroItem.top && heroItem.top[dimension] === cls ? " on" : "")));
+    if (pending.length) container.append(tile("Labeling…", pending, " arriving"));
+    if (!state.items.length) container.append(el("div", "none", "The photos appear here, sorted by the model."));
   });
 }
 
@@ -368,7 +345,7 @@ function renderProduct() {
     document.getElementById("why").replaceChildren(...[
       ["subject", top.subject], ["background", top.background], ["perspective", top.perspective],
       ["text overlay", top.text_classification], ["person or animal", top.individuals === "none" ? "none" : "yes"],
-    ].map(([k, v]) => { const li = el("li"); li.append(el("span", "", k), el("span", "", v)); return li; }));
+    ].map(([k, v]) => { const li = el("li"); li.append(el("span", "", k), el("span", "", v.replaceAll("_", " "))); return li; }));
   } else if (state.items.length) {
     hero.append(el("div", "empty", "Labeling the first photo…"));
   } else {
@@ -378,7 +355,7 @@ function renderProduct() {
   document.getElementById("photos-line").textContent = `${n} photo${n === 1 ? "" : "s"} · ${shown.length} shown · ${hidden.length} hidden`;
   document.getElementById("thumbs").replaceChildren(...shown.map((id) => {
     const t = el("div", "t" + (id === shownId ? " on" : "")); const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject;
-    t.append(img); t.onclick = () => { shownId = id; renderProduct(); }; return t;
+    t.append(img); t.onclick = () => { shownId = id; renderProduct(); renderColumns(); }; return t;
   }), ...(state.items.length ? [plusTile()] : []));
   const row = document.getElementById("hidden-row");
   row.hidden = !hidden.length;
