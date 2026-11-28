@@ -31,6 +31,10 @@ import common
 from atomic import QUESTIONS, SYSTEM_PROMPT, question_text
 from heads import MIRRORED_PERSPECTIVES, is_mirrorable, load_parts
 
+# The class behind each option letter, in the order the question text lists the options. Adapters trained before
+# this fix used common.CLASSES order instead (different for text_classification); they have no class_order.json.
+OPTION_CLASSES = {d: [name for name, _ in options] for d, (_, options) in QUESTIONS.items()}
+CLASS_ORDERS = {"options": OPTION_CLASSES, "classes": {d: list(common.CLASSES[d]) for d in common.DIMENSIONS}}
 LORA_TARGETS = r"model\.language_model\.layers\.\d+\.(self_attn\.(q|k|v|o)_proj|mlp\.(up|down)_proj)"
 MARKER = "<<SPLIT>>"
 ANSWER_PREFIX = "Answer:"
@@ -92,12 +96,12 @@ class Conversation:
 # ---------------------------------------------------------------- data
 
 
-def class_weights(rows):
+def class_weights(rows, order):
     """Per dimension a weight per class: rare classes weigh more (count ** -0.5), normalized to mean 1 per label."""
     weights = {}
     for d in common.DIMENSIONS:
         human = rows.loc[rows[f"{d}_source"] == "human", d]
-        counts = np.array([float((human == name).sum()) for name in common.CLASSES[d]])
+        counts = np.array([float((human == name).sum()) for name in order[d]])
         w = np.where(counts > 0, np.maximum(counts, 1) ** -0.5, 0.0)
         w = w / (w * counts).sum() * counts.sum()
         weights[d] = torch.tensor(w, dtype=torch.float32)
@@ -105,11 +109,12 @@ def class_weights(rows):
 
 
 class TrainingImages(torch.utils.data.Dataset):
-    def __init__(self, rows, conversation, image_size, no_context_share, mirror, seed):
+    def __init__(self, rows, conversation, image_size, no_context_share, mirror, seed, order):
         self.rows = rows.to_dict("records")
         self.conversation, self.image_size = conversation, image_size
         self.no_context_share, self.mirror, self.seed = no_context_share, mirror, seed
         self.epoch = 0
+        self.order = order
 
     def __len__(self):
         return len(self.rows)
@@ -125,7 +130,7 @@ class TrainingImages(torch.utils.data.Dataset):
             label = row[d]
             if d == "perspective" and mirrored:
                 label = MIRRORED_PERSPECTIVES[label]
-            answers[d] = common.CLASSES[d].index(label)
+            answers[d] = self.order[d].index(label)
             trained[d] = row[f"{d}_source"] == "human"
         user_text = common.user_prompt(row, with_context) if with_context else ""
         prefix, input_ids, positions = self.conversation.training_sequence(image, user_text, answers)
@@ -171,11 +176,12 @@ def train(arguments):
     processor, model = load_for_training(arguments)
     device = next(model.parameters()).device
     conversation = Conversation(processor)
-    weights = {d: w.to(device) for d, w in class_weights(parts["train"]).items()}
+    order = CLASS_ORDERS["options"]
+    weights = {d: w.to(device) for d, w in class_weights(parts["train"], order).items()}
     letter_ids = {d: torch.tensor(ids, device=device) for d, ids in conversation.letter_ids.items()}
 
     dataset = TrainingImages(rows, conversation, arguments.image_size, arguments.no_context_share,
-                             arguments.mirror, arguments.seed)
+                             arguments.mirror, arguments.seed, order)
     steps_per_epoch = math.ceil(len(dataset) / arguments.accumulation)
     total_steps = max(1, round(steps_per_epoch * arguments.epochs))
     trainable = [p for p in model.parameters() if p.requires_grad]
@@ -229,6 +235,7 @@ def train(arguments):
                     break
         epoch += 1
     model.save_pretrained(output_dir / "adapter")
+    (output_dir / "adapter" / "class_order.json").write_text(json.dumps({"order": "options"}))
     print(f"adapter saved to {output_dir / 'adapter'} after {(time.time() - started) / 60:.0f} min", flush=True)
     if arguments.evaluate:
         model.eval()
@@ -239,7 +246,7 @@ def train(arguments):
 
 
 @torch.inference_mode()
-def predict_image(model, conversation, image, user_text, device):
+def predict_image(model, conversation, image, user_text, device, order):
     """Probabilities per class of each dimension, asking the questions one after the other on one KV cache."""
     prefix = {k: v.to(device) for k, v in conversation.prefix(image, user_text).items()}
     length = prefix["input_ids"].shape[1]
@@ -252,7 +259,7 @@ def predict_image(model, conversation, image, user_text, device):
     for index, d in enumerate(common.DIMENSIONS):
         option_logits = output.logits[0, -1, conversation.letter_ids[d]].float()
         p = torch.softmax(option_logits, 0)
-        probabilities[d] = {name: float(v) for name, v in zip(common.CLASSES[d], p)}
+        probabilities[d] = {name: float(v) for name, v in zip(order[d], p)}
         if index == len(common.DIMENSIONS) - 1:
             break
         chosen = conversation.letter_ids[d][int(p.argmax())]
@@ -266,8 +273,9 @@ def predict_image(model, conversation, image, user_text, device):
     return probabilities
 
 
-def run_predictions(arguments, processor, model, parts):
+def run_predictions(arguments, processor, model, parts, order=None):
     metric = common.load_metric(arguments.data_dir)
+    order = order or CLASS_ORDERS["options"]
     conversation = Conversation(processor)
     device = next(model.parameters()).device
     predictions_dir = arguments.output_dir / "predictions"
@@ -282,7 +290,7 @@ def run_predictions(arguments, processor, model, parts):
                 for row in tqdm(rows.to_dict("records"), desc=f"{part} {name}", mininterval=60):
                     image = common.prepare_image(row["image_file"], arguments.image_size)
                     user_text = common.user_prompt(row, True) if with_context else ""
-                    probabilities = predict_image(model, conversation, image, user_text, device)
+                    probabilities = predict_image(model, conversation, image, user_text, device, order)
                     answers[row["image_id"]] = {d: max(p, key=p.get) for d, p in probabilities.items()}
                     output.write(json.dumps({"image_id": row["image_id"], "probabilities": probabilities}) + "\n")
             speed = len(rows) / (time.time() - started)
@@ -310,13 +318,17 @@ def predict(arguments):
     from zero_shot import load_model
 
     processor, model = load_model(arguments)
+    order_name = "options"  # the plain model reads the options as the question lists them
     if arguments.adapter:
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, str(arguments.adapter))
+        order_file = arguments.adapter / "class_order.json"
+        order_name = json.loads(order_file.read_text())["order"] if order_file.exists() else "classes"
     model.eval()
+    print(f"class order behind the option letters: {order_name}", flush=True)
     print(f"between answer and next question: {Conversation(processor).between!r}", flush=True)
-    run_predictions(arguments, processor, model, load_parts(arguments.data_dir))
+    run_predictions(arguments, processor, model, load_parts(arguments.data_dir), CLASS_ORDERS[order_name])
 
 
 def main():

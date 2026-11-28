@@ -5,7 +5,25 @@
 ### Hack Apertus x Galaxus: product image classification
 https://www.kaggle.com/competitions/hackapertus-galaxus
 
-`Add your team name`
+Team **ShipHappens**
+
+## Our submission
+
+One finetuned Apertus v1.5 8B labels all six dimensions in a single forward pass, and a small finetuned DINOv2
+adds a second opinion on the perspective. Public leaderboard (dev images): **0.852**.
+
+| What | Where |
+| --- | --- |
+| Technical report | [ShipHappens_Report.pdf](ShipHappens_Report.pdf), also as [technical_report.md](technical_report.md) |
+| Weights | [KaiRuth/apertus-galaxus-lora-classifier](https://huggingface.co/KaiRuth/apertus-galaxus-lora-classifier), revision `6f71705` |
+| Main model: LoRA on Apertus and six heads | [src/lora_classifier.py](src/lora_classifier.py) |
+| Helper: DINOv2 for the perspective | [src/dino_finetune.py](src/dino_finetune.py) |
+| Averaging the two | [src/blend.py](src/blend.py) |
+| Training and prediction as Hugging Face Jobs | [src/jobs/](src/jobs/) |
+| Zero-shot study: questions and decision tree | [src/question_tree_results.ipynb](src/question_tree_results.ipynb) |
+
+Setup, training and prediction commands are in section 6 of the report. The section "Try our current model" below
+describes the earlier pipeline with a frozen Apertus (0.825).
 
 Template repository for [Hack Apertus](https://hackapertus.ch/) submissions.
 Every project keeps the same layout, so organizers and judges find the same
@@ -25,6 +43,39 @@ finetuned Qwen 3.5 9B that does this today.
 - **On Kaggle:** [data](https://www.kaggle.com/competitions/hackapertus-galaxus/data), [leaderboard](https://www.kaggle.com/competitions/hackapertus-galaxus/leaderboard) and [competition rules](https://www.kaggle.com/competitions/hackapertus-galaxus/rules)
 
 The competition data never goes into this repository: no image files, csv files, labels or the passphrase.
+
+## 🚀 Try our current model (work in progress)
+
+Apertus v1.5 8B stays frozen; six small heads read its hidden states (layer 24) and give one class per dimension.
+Holdout macro F1 0.77, Kaggle public 0.776. Weights:
+[macduhuan/apertus-galaxus-heads](https://huggingface.co/macduhuan/apertus-galaxus-heads).
+
+You need Linux, an NVIDIA GPU with 24 GB or more, and a Hugging Face account that has accepted the terms of
+[swiss-ai/Apertus-v1.5-8B](https://huggingface.co/swiss-ai/Apertus-v1.5-8B).
+
+```bash
+git clone -b feature/apertus-pipeline https://github.com/Kai360-dot/galaxus-hackathon-challenge.git
+cd galaxus-hackathon-challenge
+bash src/setup_env.sh .venv                      # pins the swiss-ai transformers fork Apertus 1.5 needs
+.venv/bin/hf auth login                          # read token; Apertus is gated
+.venv/bin/hf download macduhuan/apertus-galaxus-heads heads_vague_512.pt --local-dir models
+.venv/bin/python src/heads.py predict --heads models/heads_vague_512.pt --quantization none \
+    --images path/to/image1.jpg path/to/image2.png
+```
+
+The first run downloads Apertus (about 18 GB). For each image it prints the two most likely classes per dimension.
+With the Kaggle data in `data/`, `--parts holdout` instead of `--images ...` scores the holdout with metric.py.
+On a 12 GB GPU `--quantization 4bit` runs, but scores about 0.14 lower.
+
+| File | What it does |
+| --- | --- |
+| `src/common.py` | data, holdout split, image preparation, prompt, scoring |
+| `src/heads.py` | frozen Apertus + heads: `extract` features, `fit` heads, `predict` |
+| `src/atomic.py` | zero-shot with one multiple-choice question per dimension |
+| `src/lora_atomic.py` | LoRA finetune on those questions |
+| `src/ensemble.py` | combines the probabilities of several models |
+| `src/zero_shot.py`, `src/smoke_test.py` | first zero-shot tests |
+| `src/jobs/` | the same runs as Hugging Face Jobs on a rented GPU |
 
 
 ## 🔧 Resources & Tools

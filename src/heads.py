@@ -135,6 +135,12 @@ def extract(arguments):
 
     parts = load_parts(arguments.data_dir)
     processor, model = load_model(arguments)
+    if arguments.truncate:  # skip the layers after the deepest one read; keep one more so its state is not the final norm
+        language = model.model.language_model
+        keep = max(arguments.layers) + 1
+        language.layers = torch.nn.ModuleList(list(language.layers)[:keep])
+        if hasattr(model.config, "text_config"):
+            model.config.text_config.num_hidden_layers = keep
     system_prompt = PROMPTS[arguments.prompt]()
     print(f"model loaded, {torch.cuda.memory_allocated() / 1024**3:.1f} GB on the GPU | prompt {arguments.prompt}, "
           f"{len(processor.tokenizer(system_prompt)['input_ids'])} system tokens", flush=True)
@@ -199,7 +205,7 @@ def targets(rows, image_ids, mirrored):
             row = by_id.loc[image_id]
             label = row[dimension]
             if dimension == "perspective" and flipped:
-                label = MIRRORED_PERSPECTIVES[label]
+                label = MIRRORED_PERSPECTIVES.get(label, label)  # front, back, top and bottom stay as they are
             values.append(index[label] if row[f"{dimension}_source"] == "human" else -1)
         result[dimension] = torch.tensor(values)
     return result
@@ -406,6 +412,7 @@ def main():
     parser.add_argument("--parts", nargs="+", default=["holdout", "train", "dev"])
     parser.add_argument("--prompt", choices=sorted(PROMPTS), default="vague",
                         help="vague: one sentence naming the dimensions; specific: the six atomic questions")
+    parser.add_argument("--truncate", action="store_true", help="extract: run Apertus only up to the deepest layer read")
     parser.add_argument("--limit", type=int, default=0, help="images per part, 0 for all (for quick tests)")
     parser.add_argument("--no-mirror", dest="mirror", action="store_false")
     parser.add_argument("--no-context-share", type=float, default=NO_CONTEXT_SHARE,

@@ -1,0 +1,183 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=2cm]{geometry}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\let\plainitemize\itemize
+\renewcommand{\itemize}{\plainitemize\setlength{\itemsep}{1pt}\setlength{\parskip}{0pt}\setlength{\parsep}{0pt}\setlength{\topsep}{2pt}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{\vspace{-1.5cm}Apertus sorts the shop\\[2pt]\large Technical report, team ShipHappens}
+\author{Kai Ruth, MAC, Hossam}
+\date{Hack Apertus Zurich, challenge partner Digitec Galaxus, 28 November 2026}
+
+\begin{document}
+\maketitle
+\vspace{-0.8cm}
+
+\section{Summary}
+
+The task is to label every Galaxus product image along six dimensions with 41 classes in total. The score is the
+macro F1 per dimension, averaged over the six. Our final pipeline is one finetuned Apertus v1.5 8B that labels all
+six dimensions in a single forward pass, plus a small DINOv2 model that adds a second opinion on the perspective.
+It scores 0.852 on the public leaderboard (dev images). The frozen Apertus with trained heads that we started the
+day with scored 0.825, and the organisers' Qwen 3.5 9B finetune scores 0.917.
+
+\section{Architecture}
+
+\textbf{Input.} The image is composited onto white, scaled to an area of about $512\times512$ pixels with its aspect
+ratio kept, and passed through a JPEG round trip. Apertus turns it into about 1{,}024 discrete image tokens (one per
+$16\times16$ pixels). The prompt holds one sentence that names the six dimensions, the product context (title,
+brand, product type, category) and the words ``Classify this image.''
+
+\textbf{Main model.} Apertus v1.5 8B runs up to decoder layer 24 of 32. A LoRA adapter (rank 32, about 60~M weights)
+sits on the attention and MLP projections of these 24 layers. Six MLP heads (one hidden layer of 512 units) read
+four pooled states after layer 24: the last token, the mean over the image tokens, and the difference of that mean
+between the left and right half and between the top and bottom half of the image. Each head outputs the class
+probabilities of one dimension. No text is generated.
+
+\textbf{Helper.} DINOv2-large, finetuned on the perspective labels at $448\times448$ pixels, predicts the
+perspective from the image and its mirror image. The final perspective is the weighted mean of both models'
+probabilities (Apertus 1, DINOv2 3). The other five dimensions come from Apertus alone.
+
+\textbf{Target architecture.} The pipeline is deployable \emph{on-premise} and \emph{air-gapped}: it needs one GPU
+and local weight files, and calls no service at runtime. The same holds for a sovereign Swiss cloud with a GPU of
+32~GB or more. Build-time dependencies are the Hugging Face Hub (weights of Apertus and DINOv2, our adapter),
+PyPI and the swiss-ai fork of \code{transformers}. Runtime dependencies: none.
+
+\section{Use of Apertus}
+
+\begin{itemize}
+\item \textbf{Model:} \code{swiss-ai/Apertus-v1.5-8B}, revision \code{1519de0}, in bf16 without quantisation.
+\item \textbf{How it is used:} finetuning with LoRA and inference. Zero-shot experiments also used the 8B and 70B
+models through the Keera endpoint.
+\item \textbf{Where it runs:} local weights on one GPU, plain PyTorch with the swiss-ai fork of \code{transformers}
+(commit \code{3797303}) and PEFT.
+\end{itemize}
+
+\textbf{Training} (\code{src/lora\_classifier.py}). Adapter and heads start untrained and learn together on the
+human labels of 11{,}276 train images. Loss: cross-entropy per dimension with class weights
+$\propto \mathrm{count}^{-0.5}$. Rows of rare classes are shown up to three times per epoch, the repeats at 448, 480
+or 544 pixels. Images with a left or right perspective and no text are mirrored half of the time with the label
+swapped. The product context is dropped for 20\% of the rows. AdamW, learning rate $2\cdot10^{-4}$ for the adapter
+and $5\cdot10^{-4}$ for the heads, 16 images per step, a cosine schedule over a fixed budget of 100 minutes:
+1{,}767 steps, 2.27 epochs on one Nvidia H200. The image tokenizer runs in float32, outside the mixed-precision
+block, as the Apertus source asks; we did not measure the effect of this choice.
+
+\section{Data}
+
+Only the competition files from Kaggle: 11{,}876 labeled train images (600 images of 378 whole products held out
+for our own scoring), 5{,}261 dev images and 5{,}292 final images. The data is not redistributable. This repository
+and the published weights contain no images, csv files, labels or passphrase. Dev and final images were never
+labeled by hand.
+
+\section{Limitations}
+
+\begin{itemize}
+\item \textbf{Text is the weak spot.} On the holdout, \code{text\_classification} reaches 0.680 and
+\code{text\_language} 0.799, against 0.842 and 0.916 for the Qwen reference notebook on the same images.
+\item \textbf{Rare classes.} Several classes have two or three holdout examples; their scores are unstable.
+\item \textbf{Small holdout.} With 600 images it misranked close variants (section 7). Final choices followed the
+public leaderboard.
+\item \textbf{One run.} One training run with one seed; no confidence intervals.
+\item \textbf{Speed.} 8.3 images per second on an H200, below the 28.7 images per second that the reference
+notebook reports for Qwen on an H100. We did not profile where the time goes.
+\item \textbf{Missing context.} The model was trained to cope without product context, but we did not score that
+case for the final pipeline.
+\end{itemize}
+
+\section{Reproducibility}
+
+Hardware: one Nvidia H200 (141~GB) on Hugging Face Jobs. Seed 3407. Commands, from the repository root:
+
+{\footnotesize
+\begin{verbatim}
+JOB=lora_classifier_job.sh MINUTES=100 src/jobs/launch_job.sh <private-repo> h200 512  # 100 min training
+JOB=dino_perspective_job.sh src/jobs/launch_job.sh <private-repo> h200 448             # 5 min training
+FINAL_PASSPHRASE=... JOB=lora_classifier_job.sh MODE=predict src/jobs/launch_job.sh <private-repo> h200 512
+python src/blend.py --data-dir data --output submission.csv --source lora=<lora predictions> \
+    --source dino:3=<dino predictions>
+\end{verbatim}}
+
+Commits on branch \code{feature/lora-classifier}, merged into \code{main}: \code{c978f82} (LoRA training),
+\code{56273ad} (prediction of the final images), \code{9a7d2e4} (DINOv2 job), \code{e9f7dee} (blend). Weights:
+\url{https://huggingface.co/KaiRuth/apertus-galaxus-lora-classifier}, revision \code{6f71705} (adapter, heads
+and the DINOv2 helper).
+
+\section{Galaxus challenge: results and resources}
+
+\textbf{Kaggle.} Team ShipHappens. Selected submission \code{final\_B2\_lora\_plus\_dino\_weight3.csv}, public score
+0.852.
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Method (mean macro F1) & Holdout, 600 images & Kaggle public \\
+\midrule
+One prompt for all six labels, zero-shot & 0.309$^{*}$ & \\
+Yes/no question tree, zero-shot & 0.586$^{*}$ & \\
+Frozen Apertus, six heads on layer 24 & 0.777 & 0.776 \\
+\quad + DINOv2 and pixel features, mirror head & 0.822 & 0.825 \\
+\quad + finetuned DINOv2 on perspective & 0.829 & 0.832 \\
+Finetuned Apertus (LoRA + heads) alone & 0.808 & 0.833 \\
+\textbf{Finetuned Apertus + DINOv2 on perspective (final)} & \textbf{0.826} & \textbf{0.852} \\
+Finetuned Apertus averaged with the frozen pipeline (not selected) & 0.839 & 0.853 \\
+\bottomrule
+\end{tabular}
+
+{\footnotesize $^{*}$ on 573 of the 600 images; the other 27 were used to design the questions.}
+\end{center}
+
+\begin{center}
+\small\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lccccccc}
+\toprule
+Holdout, macro F1 & subject & background & perspective & individuals & text\_class. & text\_lang. & overall \\
+\midrule
+Final pipeline & 0.774 & 0.893 & 0.842 & 0.966 & 0.680 & 0.799 & 0.826 \\
+Qwen reference notebook & 0.875 & 0.911 & 0.859 & 0.989 & 0.842 & 0.916 & 0.899 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{What mattered.}
+\begin{itemize}
+\item \textbf{Finetuning Apertus itself.} Apertus 1.5 reads images as discrete tokens with its language layers, so
+only those layers can learn the task. Against the frozen model with heads, \code{text\_language} rose from 0.711 to
+0.799 on the holdout, and one model (0.833) matched the frozen pipeline with all its helpers (0.832).
+\item \textbf{A vision helper for the perspective.} Holdout perspective 0.736 to 0.842, public score 0.833 to 0.852.
+\item \textbf{Small questions in zero-shot.} One prompt for all labels gives almost one class for every image
+(0.287 on 500 images). One yes/no question per request and a decision tree reach 0.547, contour features for the
+perspective 0.609.
+\end{itemize}
+
+\textbf{What did not work.}
+\begin{itemize}
+\item The full labeling guideline as prompt (0.333 to 0.273), thinking mode (0.473 for six times the output tokens)
+and the 70B model (0.534 against 0.571 for 8B, about five times slower), all zero-shot on 200 images.
+\item An OCR rule for the text language (public 0.825 to 0.823) and class biases tuned on the holdout (0.804 to
+0.774 on unseen products).
+\item LoRA on one question per dimension added nothing to the frozen heads (0.816 against 0.817).
+\item Averaging the frozen pipeline in as well: 0.853 against 0.852 on the public score, for a second Apertus pass per image.
+\item The holdout preferred a mix (0.853) that scored 0.845 on Kaggle, and rated at 0.839 the mix that scored 0.853.
+\end{itemize}
+
+\textbf{Models.} Runtime: Apertus v1.5 8B with our LoRA adapter and heads; \code{facebook/dinov2-large}, finetuned.
+Development only: Apertus v1.5 70B (zero-shot comparison), EasyOCR and Lingua (OCR rule), Qwen 3.5 9B numbers
+from the reference notebook. Claude Code was used as a coding assistant.
+
+\textbf{Resources.} Prediction in batches of 32: Apertus 8.7 images per second on an H200, DINOv2 170 images per
+second, together 8.3 images per second. 100{,}000 images take 3.4 GPU hours, about 17 USD at 5 USD per hour. On an
+Nvidia L40S (48~GB) the Apertus part runs at 2.8 images per second with a peak of 29~GB. Training: 100 minutes for
+Apertus (peak 126~GB at batch size 8) and 5 minutes for DINOv2, both on one H200, about 11 USD in total. The 5{,}292
+final images were predicted in 11 minutes.
+
+\textbf{Label errors.} We prepared a list of 16 suspected label errors in train.csv for the hosts. Candidates were
+label cells where an out-of-fold model disagreed with at least 95\% confidence; 144 of them were checked against the
+guideline with an AI assistant and spot-checked by us. The list is not in this repository.
+
+\end{document}
