@@ -277,33 +277,45 @@ def train(arguments):
         loader = torch.utils.data.DataLoader(dataset, batch_size=arguments.batch_size, shuffle=True,
                                              num_workers=arguments.workers, collate_fn=collate(processor),
                                              generator=torch.Generator().manual_seed(arguments.seed + epoch))
-        for k, item in enumerate(loader):
-            batch = {key: v.to(device) for key, v in item["batch"].items()}
-            labels = item["labels"].to(device)
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                features = apertus_features(model, captured, batch)
-            logits = heads(torch.cat([features.float(), item["extras"].to(device)], dim=1))
-            loss = sum(torch.nn.functional.cross_entropy(logits[d].float(), labels[:, j], weight=weights[d],
-                                                         ignore_index=-1)
-                       for j, d in enumerate(common.DIMENSIONS) if (labels[:, j] >= 0).any()) / len(common.DIMENSIONS)
-            (loss / arguments.accumulation).backward()
-            losses.append(float(loss))
-            seen += len(item["image_ids"])
-            if (k + 1) % arguments.accumulation:
-                continue
-            torch.nn.utils.clip_grad_norm_(lora + list(heads.parameters()), 1.0)
-            optimizer.step(), schedule.step(), optimizer.zero_grad(set_to_none=True)
-            step += 1
-            if step % arguments.log_every == 0:
-                rate = seen / (time.time() - started)
-                print(f"step {step}/{total} | loss {np.mean(losses[-50:]):.4f} | {rate:.2f} images/s | "
-                      f"eta {(total - step) * arguments.batch_size * arguments.accumulation / rate / 60:.0f} min | "
-                      f"peak {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB", flush=True)
-            if step % evaluate_every == 0 or step == total:
-                evaluate(step)
-                save_checkpoint(model, heads, arguments.output_dir / f"step_{step}", upload)
-            if step >= total:
-                break
+        try:
+            for k, item in enumerate(loader):
+                batch = {key: v.to(device) for key, v in item["batch"].items()}
+                labels = item["labels"].to(device)
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    features = apertus_features(model, captured, batch)
+                logits = heads(torch.cat([features.float(), item["extras"].to(device)], dim=1))
+                loss = sum(torch.nn.functional.cross_entropy(logits[d].float(), labels[:, j], weight=weights[d],
+                                                             ignore_index=-1)
+                           for j, d in enumerate(common.DIMENSIONS) if (labels[:, j] >= 0).any()) / len(common.DIMENSIONS)
+                (loss / arguments.accumulation).backward()
+                losses.append(float(loss))
+                seen += len(item["image_ids"])
+                if (k + 1) % arguments.accumulation:
+                    continue
+                torch.nn.utils.clip_grad_norm_(lora + list(heads.parameters()), 1.0)
+                optimizer.step(), schedule.step(), optimizer.zero_grad(set_to_none=True)
+                step += 1
+                if step % arguments.log_every == 0:
+                    rate = seen / (time.time() - started)
+                    print(f"step {step}/{total} | loss {np.mean(losses[-50:]):.4f} | {rate:.2f} images/s | "
+                          f"eta {(total - step) * arguments.batch_size * arguments.accumulation / rate / 60:.0f} min | "
+                          f"peak {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB", flush=True)
+                if step % evaluate_every == 0 or step == total:
+                    evaluate(step)
+                    save_checkpoint(model, heads, arguments.output_dir / f"step_{step}", upload)
+                if step >= total:
+                    break
+        except torch.cuda.OutOfMemoryError:
+            # Too large a batch for this GPU: halve it, keep the effective batch by accumulating, and go on.
+            if step > 0 or arguments.batch_size == 1:
+                raise
+            optimizer.zero_grad(set_to_none=True)
+            captured.clear()
+            torch.cuda.empty_cache()
+            arguments.batch_size //= 2
+            arguments.accumulation *= 2
+            print(f"out of memory: now batch {arguments.batch_size} x {arguments.accumulation}", flush=True)
+            continue
         epoch += 1
     print(f"done after {(time.time() - started) / 60:.0f} min", flush=True)
 
