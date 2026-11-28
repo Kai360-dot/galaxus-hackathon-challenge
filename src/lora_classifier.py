@@ -2,9 +2,14 @@
 
 Apertus 1.5 turns an image into discrete tokens and reads them with its language layers. So these layers are where
 it can learn to see what the labels ask for. Here they get a LoRA adapter, and six small heads read the hidden state
-after layer 24: the last token and the mean over the vision tokens. Adapter and heads both start untrained and learn
-together. Unlike lora_heads.py, the heads do not start from weights fitted on frozen features, and no helper
-features are needed: the Kaggle files are enough.
+after layer 24: the last token, the mean over the vision tokens, and the differences of that mean between the left
+and the right half and between the top and the bottom half of the image. A plain mean cannot tell left from right,
+which the perspective needs. Adapter and heads both start untrained and learn together. Unlike lora_heads.py, the
+heads do not start from weights fitted on frozen features, and no helper features are needed: the Kaggle files are
+enough.
+
+The vision tokenizer runs in float32 and outside the mixed-precision block: its codes are an argmax over 131,072
+entries and the model source asks for float32 there.
 
 Training and prediction take one forward pass per image, in batches of images of different sizes. The learning rate
 follows a cosine over the time budget instead of a step count, so a run ends when planned on any GPU.
@@ -33,7 +38,8 @@ from PIL import Image
 
 import common
 from heads import MIRRORED_PERSPECTIVES, is_mirrorable, load_parts
-from lora_heads import LORA_TARGETS, apertus_features, class_weights, make_uploader, prompt_text
+from heads import vision_token_mask
+from lora_heads import LORA_TARGETS, class_weights, make_uploader, prompt_text
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -41,6 +47,9 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 RARE_CLASS_TARGET = 200
 MAX_REPEATS = 3
 WARMUP_SHARE = 0.04  # of the time budget
+# A repeated row is prepared at another size than the first copy, so the adapter does not see the same tokens again.
+REPEAT_SIZE_FACTORS = (0.875, 0.9375, 1.0625)
+STATES_PER_IMAGE = 4  # last token, vision mean, left minus right, top minus bottom
 
 
 # ---------------------------------------------------------------- the model: Apertus cut short, LoRA, heads
@@ -111,14 +120,15 @@ def repeat_counts(rows):
 class Images(torch.utils.data.Dataset):
     """Rows as model inputs: prepared image, prompt text and labels, -1 where there is no human label.
 
-    With repeats (training) a row appears that many times per epoch, mirrorable images are mirrored half of the
-    time with left and right swapped in the perspective, and a share of the rows loses its product context.
+    With repeats (training) a row appears that many times per epoch, every further copy at a slightly different
+    size. Mirrorable images are mirrored half of the time with left and right swapped in the perspective, and a
+    share of the rows loses its product context.
     """
 
     def __init__(self, rows, processor, image_size, repeats=None, no_context_share=0.0, seed=common.SEED):
         records = rows.to_dict("records")
         self.train = repeats is not None
-        self.items = [row for row, count in zip(records, repeats or [1] * len(records)) for _ in range(count)]
+        self.items = [(row, copy) for row, count in zip(records, repeats or [1] * len(records)) for copy in range(count)]
         self.processor, self.image_size = processor, image_size
         self.no_context_share, self.seed, self.epoch = no_context_share, seed, 0
 
@@ -126,12 +136,15 @@ class Images(torch.utils.data.Dataset):
         return len(self.items)
 
     def __getitem__(self, index):
-        row = self.items[index]
+        row, copy = self.items[index]
         rng = random.Random(hash((self.seed, self.epoch, index)))
         mirrored = self.train and is_mirrorable(row) and rng.random() < 0.5
         with_context = not self.train or rng.random() >= self.no_context_share
+        size = self.image_size
+        if copy:
+            size = common.PATCH_SIZE * round(size * rng.choice(REPEAT_SIZE_FACTORS) / common.PATCH_SIZE)
         try:
-            image = common.prepare_image(row["image_file"], self.image_size, mirrored=mirrored)
+            image = common.prepare_image(row["image_file"], size, mirrored=mirrored)
         except Exception as error:  # an unreadable file must not stop a run over thousands of images
             print(f"{row['image_id']}: image not readable ({error}), a white image is used", flush=True)
             image = Image.new("RGB", (256, 256), "white")
@@ -166,9 +179,29 @@ def loader_for(dataset, processor, batch_size, workers, shuffle_seed=None):
 
 
 def features_of(model, captured, batch, device):
-    batch = {key: value.to(device) for key, value in batch.items()}
+    """Per image four pooled states after the last kept layer: the last token, the mean over the vision tokens,
+    and that mean on the left half minus the right half and on the top half minus the bottom half."""
+    input_ids, attention = batch["input_ids"].to(device), batch["attention_mask"].to(device)
+    sizes = batch["image_sizes"].to(device)
+    apertus = model.get_base_model() if hasattr(model, "get_base_model") else model
+    with torch.no_grad():  # float32 and outside the autocast below: the codes are an argmax over a large codebook
+        codes = apertus.model.get_image_tokens(batch["pixel_values"].to(device), sizes)
+    placeholders = input_ids == apertus.config.image_token_id
+    assert int(placeholders.sum()) == codes.numel(), "image placeholders and image codes differ in number"
+    input_ids = input_ids.masked_scatter(placeholders, codes)
     with torch.autocast(device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
-        return apertus_features(model, captured, batch)
+        model(input_ids=input_ids, attention_mask=attention, use_cache=False, logits_to_keep=1)
+    hidden = captured.pop("hidden").float()
+
+    # The vision tokens of an image come row by row: token k sits in row k // width and column k % width.
+    vision = vision_token_mask(input_ids, apertus.config) & attention.bool()
+    index = vision.long().cumsum(1) - 1
+    height, width = (sizes[:, 0:1] // common.PATCH_SIZE), (sizes[:, 1:2] // common.PATCH_SIZE)
+    row, column = torch.div(index, width, rounding_mode="floor"), index % width
+    halves = [column < width // 2, column >= width - width // 2, row < height // 2, row >= height - height // 2]
+    masks = torch.stack([vision] + [vision & half for half in halves], dim=1).float()
+    means = torch.bmm(masks, hidden) / masks.sum(2, keepdim=True).clamp(min=1)
+    return torch.cat([hidden[:, -1], means[:, 0], means[:, 1] - means[:, 2], means[:, 3] - means[:, 4]], dim=1)
 
 
 # ---------------------------------------------------------------- prediction and scoring
@@ -281,7 +314,7 @@ def train(arguments):
     device = next(model.parameters()).device
     upload = make_uploader(arguments)
 
-    heads = Heads(2 * model.config.text_config.hidden_size, arguments.hidden).to(device)
+    heads = Heads(STATES_PER_IMAGE * model.config.text_config.hidden_size, arguments.hidden).to(device)
     mean, std = feature_statistics(model, captured, processor, rows, arguments, device)
     heads.mean.copy_(mean), heads.std.copy_(std)
     weights = class_weights(parts["train"], device)
@@ -398,7 +431,7 @@ def main():
     parser.add_argument("--quantization", choices=["4bit", "8bit", "none"], default="none")
     parser.add_argument("--image-size", type=int, default=512)
     parser.add_argument("--layers", type=int, default=24, help="decoder layers of Apertus that are run")
-    parser.add_argument("--hidden", type=int, default=1024, help="width of the hidden layer of each head")
+    parser.add_argument("--hidden", type=int, default=512, help="width of the hidden layer of each head")
     parser.add_argument("--minutes", type=float, default=100.0, help="train: time budget, evaluations included")
     parser.add_argument("--evaluate-minutes", type=float, default=20.0, help="holdout score and checkpoint this often")
     parser.add_argument("--batch-size", type=int, default=8)
