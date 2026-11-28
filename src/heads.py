@@ -58,11 +58,15 @@ MIRRORED_PERSPECTIVES = {
 
 
 def load_parts(data_dir):
-    """train (without holdout), holdout and dev rows."""
+    """train (without holdout), holdout and dev rows, and final rows once they are decrypted."""
     labeled = common.read_part(data_dir / "train.csv")
     train, holdout = common.split_holdout(labeled)
     dev = common.read_part(data_dir / "dev.csv")
-    return {"train": train, "holdout": holdout, "dev": dev}
+    parts = {"train": train, "holdout": holdout, "dev": dev}
+    final_csv = data_dir / "final" / "final.csv"  # after decrypting final_encrypted.bin into data/final
+    if final_csv.exists():
+        parts["final"] = common.read_part(final_csv)
+    return parts
 
 
 def is_mirrorable(row):

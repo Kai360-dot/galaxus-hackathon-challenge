@@ -21,7 +21,8 @@ fi
 "$PYTHON" - "$RESULTS_REPO" <<'PY'
 import sys
 from huggingface_hub import HfApi
-HfApi().create_repo(sys.argv[1], repo_type="dataset", private=True, exist_ok=True)
+import os
+HfApi(token=os.environ.get("HF_TOKEN")).create_repo(sys.argv[1], repo_type="dataset", private=True, exist_ok=True)
 print(f"results repo {sys.argv[1]} (private)")
 PY
 
@@ -30,11 +31,12 @@ secrets=$(mktemp)
 chmod 600 "$secrets"
 trap 'rm -f "$secrets"' EXIT
 {
-  echo "HF_TOKEN=$(cat ~/.cache/huggingface/token)"
+  echo "HF_TOKEN=${HF_TOKEN:-$(cat ~/.cache/huggingface/token)}"  # HF_TOKEN set: run on that account instead
   echo "KAGGLE_CREDENTIALS_B64=$(base64 -w0 ~/.kaggle/credentials.json)"
+  if [ -n "${FINAL_PASSPHRASE:-}" ]; then echo "FINAL_PASSPHRASE=$FINAL_PASSPHRASE"; fi
 } > "$secrets"
 
-"$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}" \
+HF_TOKEN=${HF_TOKEN:-$(cat ~/.cache/huggingface/token)} "$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}" \
   --env COMMIT="$COMMIT" --env RESULTS_REPO="$RESULTS_REPO" --env IMAGE_SIZE="$IMAGE_SIZE" --env EPOCHS="$EPOCHS" --env PROMPT="${PROMPT:-vague}" --env EXTRA_ARGS="${EXTRA_ARGS:-}" \
   --secrets-file "$secrets" \
   pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel \

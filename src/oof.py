@@ -34,7 +34,23 @@ from ensemble import apply_biases, argmax_answers, extra_features, line, score, 
 from heads import MIRRORED_PERSPECTIVES, load_features, load_parts, make_head, predict, select, targets
 
 
-def features(spec, part, product_of, product_mean):
+TUNED_DIMENSIONS = ["perspective", "subject", "text_classification"]
+
+
+def tuned_probabilities(run_dirs, part):
+    """Encoder outputs of the finetuned DINOv2 (dino_finetune.py --half 0 and 1): image_id -> 29 numbers.
+
+    Train images get the prediction of the half model that never saw them; other parts the mean of both.
+    """
+    runs = [{name: np.load(Path(d) / f"{name}_probabilities.npy", allow_pickle=True).item()
+             for name in ("other_half", "holdout", "dev") if (Path(d) / f"{name}_probabilities.npy").exists()} for d in run_dirs]
+    flat = lambda p: np.concatenate([p[d] for d in TUNED_DIMENSIONS]).astype(np.float32)
+    if part == "train":
+        return {i: flat(p) for r in runs for i, p in r["other_half"].items()}
+    return {i: np.mean([flat(r[part][i]) for r in runs], axis=0) for i in runs[0][part]}
+
+
+def features(spec, part, product_of, product_mean, tuned_dirs=None):
     """Feature rows of one part: ids, mirrored, context flags and the matrix (Apertus + helper features)."""
     features_dir, configuration, *extra = spec.split("=")
     layers_text, pooling, _ = configuration.split(":")
@@ -42,6 +58,16 @@ def features(spec, part, product_of, product_mean):
     x = select(raw, [layers.index(int(layer)) for layer in layers_text.split(",")], pooling)
     for extra_dir in (extra[0].split(",") if extra else []):
         x = np.hstack([x, extra_features(extra_dir, part, ids, mirrored)])
+    if tuned_dirs:  # finetuned DINOv2 outputs as extra inputs; for a mirrored row its perspective is swapped
+        probs = tuned_probabilities(tuned_dirs, part)
+        swap = np.array(SWAP)
+        rows = []
+        for i, m in zip(ids, mirrored):
+            v = probs[i].copy()
+            if m:
+                v[:10] = v[:10][swap]
+            rows.append(v)
+        x = np.hstack([x, np.log(np.stack(rows) + 1e-4)])
     if product_mean:  # mean over the product's images as they are (with context, not mirrored)
         products = np.array([product_of[i] for i in ids])
         plain = context & ~mirrored
@@ -160,6 +186,7 @@ def main():
     parser.add_argument("--mixup", type=float, default=0.0)
     parser.add_argument("--context-only", action="store_true", help="train only on feature rows with product context")
     parser.add_argument("--mirror-perspective", type=float, default=0.0)
+    parser.add_argument("--tuned", nargs="*", help="dino_finetune.py run folders (both halves) whose outputs become inputs")
     parser.add_argument("--mirror-dirs", help="helper feature folders with a mirrored copy of every image, comma separated")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/oof"))
@@ -170,15 +197,17 @@ def main():
     metric = common.load_metric(arguments.data_dir)
     product_of = {i: p for part in parts.values() for i, p in zip(part["image_id"], part["product_id"])}
     hidden = int(arguments.heads.split("=")[1].split(":")[2])
-    train_ids, train_mirrored, train_context, x_train = features(arguments.heads, "train", product_of, arguments.product_mean)
-    hold_ids, hold_mirrored, hold_context, x_hold = features(arguments.heads, "holdout", product_of, arguments.product_mean)
-    dev_ids, _, _, x_dev = features(arguments.heads, "dev", product_of, arguments.product_mean)
+    train_ids, train_mirrored, train_context, x_train = features(arguments.heads, "train", product_of, arguments.product_mean, arguments.tuned)
+    hold_ids, hold_mirrored, hold_context, x_hold = features(arguments.heads, "holdout", product_of, arguments.product_mean, arguments.tuned)
+    has_dev = any((Path(arguments.heads.split("=")[0]) / "dev").glob("shard_*.npz"))
+    dev_ids, _, _, x_dev = (features(arguments.heads, "dev", product_of, arguments.product_mean, arguments.tuned) if has_dev
+                            else (np.array([]), None, None, x_hold[:0]))
     if arguments.context_only:  # drop the copies without product context from training
         train_ids, train_mirrored, train_context, x_train = (a[train_context] for a in (train_ids, train_mirrored, train_context, x_train))
     keep = hold_context & ~hold_mirrored
     hold_ids, x_hold = hold_ids[keep], x_hold[keep]
     y = targets(parts["train"], train_ids, train_mirrored)
-    print(f"train rows {len(x_train)} x {x_train.shape[1]} | holdout {len(x_hold)} | dev {len(x_dev)}", flush=True)
+    print(f"train rows {len(x_train)} x {x_train.shape[1]} | holdout {len(x_hold)} | dev {len(dev_ids)}", flush=True)
 
     # Out-of-fold predictions over train products.
     products = sorted(set(product_of[i] for i in train_ids))
@@ -223,8 +252,9 @@ def main():
     np.save(arguments.output_dir / "biases.npy", biases, allow_pickle=True)
     np.save(arguments.output_dir / "holdout_probabilities.npy", hold, allow_pickle=True)
     np.save(arguments.output_dir / "dev_probabilities.npy", dev, allow_pickle=True)
-    write_submission(arguments.data_dir, argmax_answers(dev), arguments.output_dir / "submission_plain.csv")
-    write_submission(arguments.data_dir, argmax_answers(apply_biases(dev, biases)), arguments.output_dir / "submission_biases.csv")
+    if has_dev:
+        write_submission(arguments.data_dir, argmax_answers(dev), arguments.output_dir / "submission_plain.csv")
+        write_submission(arguments.data_dir, argmax_answers(apply_biases(dev, biases)), arguments.output_dir / "submission_biases.csv")
 
 
 if __name__ == "__main__":
