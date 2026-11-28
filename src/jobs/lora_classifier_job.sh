@@ -35,10 +35,10 @@ PY
 trap upload_logs EXIT
 
 step "setup"
+command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git >/dev/null)  # also for the pip install
 if [ -d /code/repo/src ]; then  # the launcher put the code of this commit there
   cp -r /code/repo repo
 else
-  command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git >/dev/null)
   git clone -q "$REPO_URL" repo && git -C repo checkout -q "$COMMIT"
 fi
 pip install -q uv
