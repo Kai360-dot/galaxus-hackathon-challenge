@@ -58,6 +58,27 @@
   .stage { min-height: 420px; display: grid; place-items: center; }
   .stage img { max-width: 100%; max-height: 560px; object-fit: contain; }
   .stage .empty { color: var(--muted); font-size: 1.15rem; text-align: center; line-height: 1.6; padding: 40px 10px; }
+  .upload { width: 100%; min-height: 440px; border: 2px dashed #c9c9c9; border-radius: 12px; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 18px; padding: 30px 20px; text-align: center; background: #fafafa; transition: background .2s, border-color .2s; }
+  .upload.drag, .stage.drag img { border-color: #000; background: #f0f0f0; }
+  .upload .big { width: 64px; height: 64px; stroke: #9a9a9a; fill: none; stroke-width: 1.2; }
+  .upload p { margin: 0; color: var(--muted); font-size: 1.1rem; line-height: 1.5; }
+  .upload p b { color: #000; font-weight: 600; }
+  .upload .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(460px, 100%); }
+  .upload .buttons button { display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 6px; padding: 12px; font-size: 1.05rem; cursor: pointer; }
+  .upload .buttons .primary { background: var(--dark); color: #fff; border: none; }
+  .upload .buttons .secondary { background: #f2f2f2; color: #000; border: 1px solid #cfcfcf; }
+  .upload .buttons .icon { stroke: currentColor; width: 20px; height: 20px; }
+  @media (max-width: 520px) { .upload .buttons { grid-template-columns: 1fr; } }
+  .vthumbs .t.plus { display: grid; place-items: center; border-style: dashed; color: #777; font-size: 2rem; font-weight: 300; }
+  .upstatus { color: var(--muted); font-size: .95rem; margin: 10px 0 0; min-height: 1.4em; text-align: center; }
+  .namefield { display: flex; flex-direction: column; gap: 6px; margin: 26px 0 0; color: var(--muted); font-size: .9rem; }
+  .namefield input { font: inherit; font-size: 1rem; padding: 10px 16px; border-radius: 999px; border: 1.5px solid #5c5c5c; color: #000; }
+  @media (max-width: 700px) {
+    .pdp { grid-template-columns: 1fr; } .pdp .buy { grid-column: auto; }
+    .vthumbs { flex-direction: row; overflow-x: auto; order: 2; } .vthumbs .t { flex: 0 0 auto; width: 64px; height: 64px; }
+    .upload { min-height: 300px; } .stage { min-height: 280px; }
+  }
   .hidden-row { margin-top: 10px; font-size: .9rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; grid-column: 2; }
   .hidden-row img { width: 46px; height: 46px; object-fit: contain; border: 1px dashed #bbb; border-radius: 6px; filter: grayscale(1); opacity: .5; }
   .buy .flag { display: flex; align-items: center; gap: 10px; font-size: .95rem; padding-bottom: 8px; border-bottom: 4px solid var(--line); position: relative; }
@@ -109,8 +130,6 @@
   .clock .arrow { stroke: var(--s3); stroke-width: 2.8; fill: none; stroke-linecap: round; }
   .clock .head { fill: var(--s3); }
 
-  #camera { max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
-  #camera h2 { margin: 0; }
   .shoot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 13px; font-size: 1.15rem; font-weight: 400;
     background: var(--dark); color: #fff; border-radius: 6px; cursor: pointer; }
   .shoot.secondary { background: #f2f2f2; color: #000; border: 1px solid #cfcfcf; font-size: 1.1rem; }
@@ -147,21 +166,14 @@
     <div class="icons">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.1"/></svg>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>
-      <a class="pill" href="#camera">Camera</a>
-      <a class="pill" href="#board" style="background:#fff;color:#000;border:1.5px solid #000">Product page</a>
+      <button class="pill" type="button" data-add>Add photos</button>
     </div>
   </header>
 
-  <section id="camera" hidden>
-    <h2>Photograph a product</h2>
-    <label class="shoot"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Take a photo<input id="shot" type="file" accept="image/*" capture="environment" multiple></label>
-    <label class="shoot secondary"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M4 17l5-5 4 4 3-3 4 4"/></svg>Choose from gallery<input id="pick" type="file" accept="image/*" multiple></label>
-    <label class="field">Product name (optional, like a shop title)<input id="title" type="text" placeholder="e.g. Drinking bottle 0.75 l"></label>
-    <p style="color:var(--muted);margin:0" id="send-status">Photos appear on the product page right away.</p>
-    <div class="sent" id="sent"></div>
-  </section>
+  <input id="shot" type="file" accept="image/*" capture="environment" multiple hidden>
+  <input id="pick" type="file" accept="image/*" multiple hidden>
 
-  <div id="board" hidden>
+  <div id="board">
     <div class="layout">
       <nav class="cats" id="cats" aria-label="Sort the photos by"></nav>
       <main>
@@ -169,7 +181,8 @@
         <div class="pdp">
           <div class="vthumbs" id="thumbs"></div>
           <div>
-            <div class="stage" id="hero"><div class="empty">No photos yet.<br>Open this page on a phone, tap <b>Camera</b> and photograph any product.</div></div>
+            <div class="stage" id="hero"></div>
+            <p class="upstatus" id="send-status"></p>
           </div>
           <div class="buy">
             <div class="flag"><b class="badge">HERO</b><span>image chosen <b>by the model</b></span></div>
@@ -182,7 +195,8 @@
             </div>
             <div class="why"><ul id="why"></ul></div>
             <div class="ok" id="ok-line">Waiting for the first photo</div>
-            <a class="cta" href="#camera"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Add photos</a>
+            <label class="namefield">Product name (optional, used as context like a shop title)<input id="title" type="text" placeholder="e.g. Drinking bottle 0.75 l"></label>
+            <button class="cta" type="button" data-add style="margin-top:16px"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Add photos</button>
             <div class="cta2">
               <button type="button" id="all-labels"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>All labels</button>
               <button type="button" id="reset"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>New product</button>
@@ -327,18 +341,37 @@ function renderProduct() {
       ["subject", top.subject], ["background", top.background], ["perspective", top.perspective],
       ["text overlay", top.text_classification], ["person or animal", top.individuals === "none" ? "none" : "yes"],
     ].map(([k, v]) => { const li = el("li"); li.append(el("span", "", k), el("span", "", v)); return li; }));
+  } else if (state.items.length) {
+    hero.append(el("div", "empty", "Labeling the first photo…"));
   } else {
-    hero.append(el("div", "empty", state.items.length ? "Labeling the first photo…" : "No photos yet. Open this page on a phone, tap Camera and photograph any product."));
+    hero.append(uploadZone());
   }
   const n = state.items.length;
   document.getElementById("photos-line").textContent = `${n} photo${n === 1 ? "" : "s"} · ${shown.length} shown · ${hidden.length} hidden`;
   document.getElementById("thumbs").replaceChildren(...shown.map((id) => {
     const t = el("div", "t" + (id === shownId ? " on" : "")); const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject;
     t.append(img); t.onclick = () => { shownId = id; renderProduct(); }; return t;
-  }));
+  }), ...(state.items.length ? [plusTile()] : []));
   const row = document.getElementById("hidden-row");
   row.hidden = !hidden.length;
   row.replaceChildren(el("span", "", "Hidden by the model (logo or placeholder):"), ...hidden.map((id) => { const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject; return img; }));
+}
+
+function uploadZone() {
+  const zone = el("div", "upload");
+  zone.innerHTML = `<svg class="big" viewBox="0 0 64 64"><rect x="8" y="16" width="48" height="36" rx="5"/><circle cx="32" cy="34" r="10"/><path d="M22 16l4-6h12l4 6"/></svg>
+    <p><b>Photograph any product</b><br>several photos from different sides work best, or drop images here</p>
+    <div class="buttons">
+      <button type="button" class="primary" data-shot><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Take a photo</button>
+      <button type="button" class="secondary" data-add><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="M4 17l5-5 4 4 3-3 4 4"/></svg>Choose photos</button>
+    </div>`;
+  return zone;
+}
+
+function plusTile() {
+  const t = el("div", "t plus", "+"); t.title = "Add photos"; t.setAttribute("role", "button"); t.tabIndex = 0;
+  t.onclick = () => document.getElementById("pick").click();
+  return t;
 }
 
 function renderDetail() {
@@ -369,18 +402,10 @@ function renderStats() {
     : (waiting ? `Labeling ${waiting} photo${waiting > 1 ? "s" : ""}…` : "Waiting for the first photo");
 }
 
-function renderSent() {
-  document.getElementById("sent").replaceChildren(...state.items.slice().reverse().map((i) => {
-    const f = el("figure"); const img = el("img"); img.src = "/image/" + i.id; img.alt = "";
-    f.append(img, el("figcaption", "", i.status === "done" ? `${i.top.subject} · ${i.top.perspective}` : (i.status === "error" ? "error" : "labeling…")));
-    return f;
-  }));
-}
-
 async function poll() {
   try {
     const next = await (await fetch("/state", { cache: "no-store" })).json();
-    if (next.version !== state.version) { state = next; renderStats(); renderProduct(); renderCats(); renderColumns(); renderSent(); if (selected) renderDetail(); }
+    if (next.version !== state.version) { state = next; renderStats(); renderProduct(); renderCats(); renderColumns(); if (selected) renderDetail(); }
   } catch (e) { /* the server restarts or the network drops: try again on the next tick */ }
   setTimeout(poll, 1000);
 }
@@ -391,9 +416,9 @@ async function send(files) {
   [...files].forEach((f) => form.append("files", f));
   form.append("title", document.getElementById("title").value);
   const status = document.getElementById("send-status");
-  status.textContent = `Sending ${files.length} photo${files.length > 1 ? "s" : ""}…`;
-  try { await fetch("/upload", { method: "POST", body: form }); status.textContent = "Sent. Watch the product page."; }
-  catch (e) { status.textContent = "Not sent: check the connection and try again."; }
+  status.textContent = `Uploading ${files.length} photo${files.length > 1 ? "s" : ""}…`;
+  try { await fetch("/upload", { method: "POST", body: form }); status.textContent = ""; }
+  catch (e) { status.textContent = "Not uploaded: check the connection and try again."; }
 }
 
 document.getElementById("shot").onchange = (e) => { send(e.target.files); e.target.value = ""; };
@@ -405,13 +430,16 @@ document.getElementById("reset").onclick = async (e) => {
   armed = false; e.target.textContent = "New product"; await fetch("/reset", { method: "POST" });
 };
 
-function route() {
-  const camera = location.hash === "#camera" || (location.hash !== "#board" && innerWidth < 700);
-  document.getElementById("camera").hidden = !camera;
-  document.getElementById("board").hidden = camera;
-}
-addEventListener("hashchange", route);
-route(); renderCats(); poll();
+// Any [data-add] opens the photo picker, [data-shot] the camera; images can also be dropped on the main image.
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-shot]")) document.getElementById("shot").click();
+  else if (e.target.closest("[data-add]")) document.getElementById("pick").click();
+});
+const stage = document.getElementById("hero");
+["dragenter", "dragover"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.add("drag"); stage.querySelector(".upload")?.classList.add("drag"); }));
+["dragleave", "drop"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.remove("drag"); stage.querySelector(".upload")?.classList.remove("drag"); }));
+stage.addEventListener("drop", (e) => send(e.dataTransfer.files));
+renderCats(); renderProduct(); poll();
 </script>
 </body>
 </html>
