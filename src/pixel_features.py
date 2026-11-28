@@ -133,12 +133,16 @@ def main():
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--features-dir", type=Path, default=Path("results/pixels"))
     parser.add_argument("--parts", nargs="+", default=["holdout", "train", "dev"])
-    parser.add_argument("--processes", type=int, default=12)
+    parser.add_argument("--processes", type=int, default=8)
+    parser.add_argument("--mirror-all", action="store_true", help="also measure every image mirrored, in every part")
     arguments = parser.parse_args()
     parts = load_parts(arguments.data_dir)
     for part in arguments.parts:
-        jobs = [(image_id, row, mirrored) for image_id, row, mirrored, with_context
-                in extraction_jobs(part, parts[part], mirror=True, no_context_share=0.0) if with_context]
+        if arguments.mirror_all:  # every image also mirrored, in every part
+            jobs = [(r["image_id"], r, flip) for r in parts[part].to_dict("records") for flip in (False, True)]
+        else:
+            jobs = [(image_id, row, mirrored) for image_id, row, mirrored, with_context
+                    in extraction_jobs(part, parts[part], mirror=True, no_context_share=0.0) if with_context]
         started = time.time()
         with Pool(arguments.processes) as pool:
             features = np.stack(pool.map(measure, [(row["image_file"], m) for _, row, m in jobs], chunksize=40))

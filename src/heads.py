@@ -199,7 +199,7 @@ def targets(rows, image_ids, mirrored):
             row = by_id.loc[image_id]
             label = row[dimension]
             if dimension == "perspective" and flipped:
-                label = MIRRORED_PERSPECTIVES[label]
+                label = MIRRORED_PERSPECTIVES.get(label, label)  # front, back, top and bottom stay as they are
             values.append(index[label] if row[f"{dimension}_source"] == "human" else -1)
         result[dimension] = torch.tensor(values)
     return result

@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--size", type=int, default=224, help="images scaled to about size x size pixels")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--mirror-all", action="store_true", help="also extract every image mirrored, in every part")
     arguments = parser.parse_args()
 
     from transformers import AutoModel
@@ -65,9 +66,13 @@ def main():
     parts = load_parts(arguments.data_dir)
     for part in arguments.parts:
         rows = parts[part] if arguments.limit == 0 else parts[part].head(arguments.limit)
-        # Same images as the Apertus features: mirrored copies for train; the context copies need no own features.
-        jobs = [(image_id, row, mirrored) for image_id, row, mirrored, with_context
-                in extraction_jobs(part, rows, mirror=True, no_context_share=0.0) if with_context]
+        if arguments.mirror_all:
+            # Every image also mirrored, in every part: for a perspective head that answers the mirror image too.
+            jobs = [(r["image_id"], r, flip) for r in rows.to_dict("records") for flip in (False, True)]
+        else:
+            # Same images as the Apertus features: mirrored copies for train; context copies need no own features.
+            jobs = [(image_id, row, mirrored) for image_id, row, mirrored, with_context
+                    in extraction_jobs(part, rows, mirror=True, no_context_share=0.0) if with_context]
         # One image per batch: every image keeps its own aspect ratio.
         loader = torch.utils.data.DataLoader(Images(jobs, arguments.size), batch_size=None,
                                              num_workers=arguments.workers)
