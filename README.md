@@ -1,3 +1,5 @@
+> [!CAUTION]
+> **SLOP WARNING:** The code in this repo is 100% AI generated and was written during a 2-day hackathon.
 # Hack Apertus Zurich — Challenge Partner: Digitec Galaxus
 
 ## 🎯 The Challenge
