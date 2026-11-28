@@ -4,118 +4,154 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Apertus Product Board</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
 <style>
-  /* A clean online-shop product page: dark top bar with the Hack Apertus logo, light page, model board below. */
+  /* Online-shop look: six-colour stripe, white header with a pill search bar, category list on the left
+     (here: the six dimensions), bold section titles, large rounded image cards, thin column rules. */
   :root {
-    --bar: #16181d; --bar-fg: #f3f4f6; --bg: #ffffff; --soft: #f4f5f7; --line: #e3e5ea; --fg: #15171c; --muted: #6b7280;
-    --accent: #0b63ce; --hero: #f0a500; --good: #1f9d55; --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --fg: #000; --muted: #6e6e6e; --line: #e4e4e4; --soft: #f5f5f5; --dark: #3c3c3c; --bg: #fff;
+    --s1: #c8a87e; --s2: #ffc72c; --s3: #f37b5c; --s4: #84d65a; --s5: #b285e0; --s6: #63c7f2;
+    --font: "Figtree", "Nunito Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); }
-  a { color: var(--accent); }
-  button, .button { font: inherit; font-size: .9rem; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
-    border-radius: 8px; padding: 8px 14px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
-  button:focus-visible, .button:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 17px; }
+  a { color: inherit; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 
-  header.bar { background: var(--bar); color: var(--bar-fg); padding-top: env(safe-area-inset-top); }
-  header.bar .wrap { display: flex; align-items: center; gap: 18px; padding-block: 12px; flex-wrap: wrap; }
-  header.bar img.logo { height: 34px; width: auto; display: block; }
-  header.bar .built { font-size: .85rem; color: #c9ced8; letter-spacing: .02em; margin-right: -10px; }
-  header.bar .tag { font-size: .8rem; color: #b8bec9; border-left: 1px solid #3a3f4a; padding-left: 14px; }
-  header.bar .search { flex: 1 1 240px; min-width: 0; background: #262a33; color: #9aa1ad; border-radius: 8px; padding: 9px 14px; font-size: .9rem; }
-  header.bar .button { background: #262a33; color: var(--bar-fg); border-color: #3a3f4a; }
-  .crumbs { font-size: .8rem; color: var(--muted); padding-block: 14px 6px; }
+  .stripe { display: grid; grid-template-columns: repeat(6, 1fr); height: 12px; padding-top: env(safe-area-inset-top); }
+  .stripe i:nth-child(1) { background: var(--s1); } .stripe i:nth-child(2) { background: var(--s2); }
+  .stripe i:nth-child(3) { background: var(--s3); } .stripe i:nth-child(4) { background: var(--s4); }
+  .stripe i:nth-child(5) { background: var(--s5); } .stripe i:nth-child(6) { background: var(--s6); }
 
-  /* product block */
-  .product { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 32px; padding-block: 8px 28px; }
-  @media (max-width: 860px) { .product { grid-template-columns: 1fr; } }
-  .hero-frame { background: var(--soft); border-radius: 12px; aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; position: relative; }
-  .hero-frame img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; }
-  .hero-frame .ribbon { position: absolute; top: 12px; left: 12px; background: var(--hero); color: #1d1300; font-weight: 700; font-size: .75rem;
-    padding: 4px 10px; border-radius: 999px; letter-spacing: .04em; }
-  .hero-frame .placeholder { color: var(--muted); text-align: center; padding: 24px; line-height: 1.5; }
-  .thumbs { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 4px; }
-  .thumbs .t { flex: 0 0 auto; width: 76px; height: 76px; border-radius: 8px; border: 2px solid var(--line); background: #fff; padding: 2px; cursor: pointer; position: relative; }
-  .thumbs .t img { width: 100%; height: 100%; object-fit: contain; display: block; }
-  .thumbs .t.first { border-color: var(--hero); }
-  .thumbs .t .n { position: absolute; bottom: 2px; right: 4px; font-size: .65rem; color: var(--muted); }
-  .hidden-row { margin-top: 12px; font-size: .8rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .hidden-row img { width: 44px; height: 44px; object-fit: contain; background: #fff; border: 1px dashed var(--line); border-radius: 6px; filter: grayscale(1); opacity: .55; }
+  header.top { display: flex; align-items: center; gap: 28px; padding: 30px max(40px, env(safe-area-inset-right)) 30px max(40px, env(safe-area-inset-left));
+    box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .brand { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; text-decoration: none; }
+  .brand span { font-size: .9rem; color: var(--muted); }
+  .brand img { height: 30px; width: auto; filter: invert(1); display: block; }
+  .search { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; border: 1.5px solid #5c5c5c; border-radius: 999px;
+    padding: 10px 18px; color: #9a9a9a; font-size: 1.25rem; }
+  .search svg { flex: 0 0 auto; }
+  .icons { display: flex; align-items: center; gap: 30px; flex: 0 0 auto; }
+  .pill { background: var(--dark); color: #fff; border: none; border-radius: 8px; padding: 6px 14px; font-size: 1.05rem; text-decoration: none; cursor: pointer; }
+  .icon { width: 24px; height: 24px; stroke: #333; fill: none; stroke-width: 1.6; }
+  @media (max-width: 900px) { header.top { padding: 16px; gap: 14px; flex-wrap: wrap; } .search { order: 3; flex-basis: 100%; font-size: 1rem; } .icons .icon { display: none; } }
 
-  .info h1 { font-size: clamp(1.4rem, 2.4vw, 2rem); line-height: 1.2; margin: 0 0 6px; text-wrap: balance; }
-  .info .by { color: var(--muted); font-size: .9rem; margin: 0 0 18px; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
-  .chip { background: var(--soft); border-radius: 999px; padding: 6px 12px; font-size: .82rem; font-variant-numeric: tabular-nums; }
-  .chip b { font-weight: 600; }
-  .why { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-  .why h2 { font-size: .95rem; margin: 0 0 8px; }
-  .why ul { margin: 0; padding-left: 18px; line-height: 1.7; font-size: .9rem; }
-  .why .muted { color: var(--muted); font-size: .85rem; margin: 8px 0 0; }
+  .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 70px; padding: 30px max(40px, env(safe-area-inset-right)) 40px max(40px, env(safe-area-inset-left)); }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 16px; padding: 16px; } }
+  nav.cats { display: flex; flex-direction: column; }
+  nav.cats .label { color: var(--muted); padding: 14px 0; border-bottom: 1px solid var(--line); }
+  nav.cats button { text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); padding: 14px 0; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; color: var(--fg); }
+  nav.cats button[aria-pressed="true"] { font-weight: 700; }
+  nav.cats .count { font-size: .8rem; background: var(--fg); color: #fff; border-radius: 999px; min-width: 22px; height: 22px; display: inline-grid; place-items: center; padding: 0 6px; }
+  @media (max-width: 900px) { nav.cats { flex-direction: row; overflow-x: auto; gap: 16px; } nav.cats .label { display: none; } nav.cats button { border: none; white-space: nowrap; } }
 
-  /* model board */
-  .board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 22px; }
-  .board-head h2 { font-size: 1.2rem; margin: 0; }
-  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 14px; }
-  .tabs button[aria-pressed="true"] { background: var(--fg); color: #fff; border-color: var(--fg); }
-  .columns { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; min-height: 240px; }
-  .column { flex: 1 0 150px; max-width: 230px; background: var(--soft); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-  .column.empty-col { opacity: .5; }
-  .column h3 { margin: 0; font-size: .78rem; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; word-break: break-word; }
-  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; will-change: transform; }
-  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; display: block; }
-  .card .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: .78rem; }
-  .card .pct { font-variant-numeric: tabular-nums; color: var(--muted); }
-  .card.pending { opacity: .55; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 0 0 34px; font-size: 1.05rem; }
+  .crumbs a { color: #1d6fb8; text-decoration: none; } .crumbs .sep { color: #999; } .crumbs .here { color: #444; }
+  .pdp { display: grid; grid-template-columns: 84px minmax(0, 1fr) minmax(280px, 440px); gap: 28px 40px; align-items: start; }
+  @media (max-width: 1100px) { .pdp { grid-template-columns: 70px minmax(0, 1fr); } .pdp .buy { grid-column: 1 / -1; } }
+  .vthumbs { display: flex; flex-direction: column; gap: 10px; }
+  .vthumbs .t { width: 80px; height: 80px; border-radius: 8px; border: 1px solid var(--line); background: #fff; padding: 4px; cursor: pointer; }
+  .vthumbs .t.on { border: 2px solid #444; }
+  .vthumbs .t img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .stage { min-height: 420px; display: grid; place-items: center; }
+  .stage img { max-width: 100%; max-height: 560px; object-fit: contain; }
+  .stage .empty { color: var(--muted); font-size: 1.15rem; text-align: center; line-height: 1.6; padding: 40px 10px; }
+  .hidden-row { margin-top: 10px; font-size: .9rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; grid-column: 2; }
+  .hidden-row img { width: 46px; height: 46px; object-fit: contain; border: 1px dashed #bbb; border-radius: 6px; filter: grayscale(1); opacity: .5; }
+  .buy .flag { display: flex; align-items: center; gap: 10px; font-size: .95rem; padding-bottom: 8px; border-bottom: 4px solid var(--line); position: relative; }
+  .buy .flag b.badge { background: #000; color: #fff; font-weight: 700; padding: 3px 9px; font-size: 1rem; }
+  .buy .flag::after { content: ""; position: absolute; left: 0; bottom: -4px; height: 4px; width: 22%; background: #000; }
+  .buy .score { font-size: 2.6rem; font-weight: 700; margin: 14px 0 0; line-height: 1; font-variant-numeric: tabular-nums; }
+  .buy .score small { font-size: 1.1rem; font-weight: 400; margin-left: 8px; }
+  .buy h1 { font-size: clamp(1.8rem, 2.6vw, 2.5rem); font-weight: 400; margin: 6px 0 0; line-height: 1.15; text-wrap: balance; }
+  .buy h1 b { font-weight: 700; }
+  .buy .sub { margin: 18px 0 0; }
+  .facts2 { display: grid; grid-template-columns: 1fr 1fr; margin-top: 34px; }
+  .facts2 > div + div { border-left: 1px solid var(--line); padding-left: 30px; }
+  .facts2 .k { color: var(--muted); font-size: .95rem; margin-bottom: 6px; }
+  .facts2 .v { font-size: 1.1rem; } .facts2 .v a, .facts2 .v .link { color: #1d6fb8; text-decoration: none; }
+  .why { margin-top: 26px; font-size: .95rem; }
+  .why li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .why ul { list-style: none; margin: 0; padding: 0; } .why li span:first-child { color: var(--muted); } .why li span:last-child { font-weight: 600; }
+  .ok { display: flex; gap: 12px; align-items: flex-start; color: #2f8a2f; font-size: 1.1rem; line-height: 1.5; margin: 34px 0 18px; }
+  .ok::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: #5cc15c; margin-top: 6px; flex: 0 0 auto; }
+  .cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; background: var(--dark); color: #fff; border: none;
+    border-radius: 6px; padding: 13px; font-size: 1.15rem; text-decoration: none; cursor: pointer; }
+  .cta2 { display: grid; grid-template-columns: 1fr 1.15fr; gap: 10px; margin-top: 10px; }
+  .cta2 button { display: flex; align-items: center; justify-content: center; gap: 10px; background: #f2f2f2; border: 1px solid #cfcfcf; border-radius: 6px;
+    padding: 13px; font-size: 1.1rem; cursor: pointer; color: #000; }
+  .cta .icon, .cta2 .icon { stroke: currentColor; width: 22px; height: 22px; }
+  .free { color: var(--muted); margin-top: 26px; font-size: 1.05rem; }
+
+  .board { margin-top: 56px; }
+  .board h2 { display: flex; align-items: center; gap: 12px; }
+  .board h2 .n { font-size: .95rem; font-weight: 500; background: #ececec; border-radius: 999px; padding: 2px 10px; }
+  .columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 12px; }
+  .column { border: 1px solid #d6d6d6; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-height: 70px; }
+  .column.has { border-color: #bdbdbd; }
+  .column.empty-col { color: #9e9e9e; }
+  .column h3 { margin: 0; font-size: 1.15rem; font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 8px; word-break: break-word; }
+  .column h3 .dot { width: 14px; height: 14px; border-radius: 50%; background: #5cc15c; flex: 0 0 auto; }
+  .column.empty-col h3 .dot { background: #e0e0e0; }
+  .column .sub { color: var(--muted); font-size: .9rem; margin-top: -8px; }
+  .card { cursor: pointer; display: flex; flex-direction: column; gap: 6px; will-change: transform; }
+  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--soft); border-radius: 8px; display: block; }
+  .card .line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .9rem; }
+  .card .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .card.pending { opacity: .5; }
   .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
-  .clock { width: 32px; height: 32px; flex: 0 0 auto; }
-  .clock circle { fill: none; stroke: #b5bac4; stroke-width: 1.5; }
-  .clock .cam { fill: #8a909c; }
-  .clock .arrow { stroke: var(--hero); stroke-width: 2.6; fill: none; stroke-linecap: round; }
-  .clock .head { fill: var(--hero); }
+  .bar i { display: block; height: 100%; background: var(--fg); }
+  .clock { width: 34px; height: 34px; flex: 0 0 auto; }
+  .clock circle { fill: none; stroke: #bdbdbd; stroke-width: 1.5; }
+  .clock .cam { fill: #7a7a7a; }
+  .clock .arrow { stroke: var(--s3); stroke-width: 2.8; fill: none; stroke-linecap: round; }
+  .clock .head { fill: var(--s3); }
 
-  /* camera view */
-  #camera { max-width: 520px; margin: 0 auto; padding-block: 18px 28px; display: flex; flex-direction: column; gap: 14px; }
-  .shoot { display: block; text-align: center; padding: 26px 16px; font-size: 1.2rem; font-weight: 600; background: var(--accent); color: #fff; border-radius: 14px; cursor: pointer; }
-  .shoot.secondary { background: var(--soft); color: var(--fg); font-size: 1rem; padding: 16px; }
+  #camera { max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+  #camera h2 { margin: 0; }
+  .shoot { display: block; text-align: center; padding: 24px 16px; font-size: 1.2rem; font-weight: 600; background: var(--dark); color: #fff; border-radius: 12px; cursor: pointer; }
+  .shoot.secondary { background: #fff; color: var(--fg); border: 1.5px solid var(--fg); font-size: 1rem; padding: 14px; }
   .shoot input { display: none; }
-  label.field { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: .9rem; }
-  label.field input { font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--line); }
-  .sent { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  label.field { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: .95rem; }
+  label.field input { font: inherit; padding: 12px 16px; border-radius: 999px; border: 1.5px solid #5c5c5c; }
+  .sent { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
   .sent figure { margin: 0; }
   .sent img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--soft); border-radius: 8px; display: block; }
-  .sent figcaption { font-size: .7rem; color: var(--muted); margin-top: 3px; }
+  .sent figcaption { font-size: .75rem; color: var(--muted); margin-top: 4px; }
 
-  /* detail drawer */
-  #detail { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: min(420px, calc(100vw - 24px));
-    max-height: 82vh; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: 0 16px 48px rgba(15,20,30,.18); z-index: 5; }
-  #detail img { width: 100%; max-height: 220px; object-fit: contain; background: var(--soft); border-radius: 8px; }
-  #detail dl { display: grid; gap: 10px; margin: 12px 0 0; }
-  #detail dt { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-  #detail dd { margin: 4px 0 0; display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
-  #detail .line { display: grid; grid-template-columns: 1fr 48px; gap: 8px; align-items: center; }
-  #detail .line span { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-  .close { float: right; }
-  footer { color: var(--muted); font-size: .78rem; padding-block: 24px; }
+  #detail { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); width: min(420px, calc(100vw - 32px));
+    max-height: 82vh; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.18); z-index: 5; }
+  #detail img { width: 100%; max-height: 230px; object-fit: contain; background: var(--soft); border-radius: 8px; }
+  #detail dl { display: grid; gap: 12px; margin: 14px 0 0; }
+  #detail dt { font-weight: 700; }
+  #detail dd { margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; font-size: .92rem; }
+  #detail .l { display: grid; grid-template-columns: 1fr 48px; gap: 10px; align-items: center; }
+  #detail .l span { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #detail .close { float: right; background: none; border: 1.5px solid var(--fg); border-radius: 8px; padding: 4px 12px; cursor: pointer; }
+  footer { color: var(--muted); font-size: .85rem; padding: 0 max(40px, env(safe-area-inset-left)) 30px; }
   @media (prefers-reduced-motion: reduce) { .card { transition: none !important; } }
 </style>
 </head>
 <body>
-  <header class="bar">
-    <div class="wrap">
-      <span class="built">Built at</span>
-      <a href="https://hackapertus.ch/" aria-label="Hack Apertus"><img class="logo" src="/logo.svg" alt="Hack Apertus"></a>
-      <span class="tag">Product image demo · Apertus v1.5</span>
-      <span class="search" aria-hidden="true">Search products…</span>
-      <a class="button" href="#camera">Camera</a>
-      <a class="button" href="#board">Product page</a>
+  <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <header class="top">
+    <a class="brand" href="https://hackapertus.ch/" aria-label="Built at Hack Apertus"><span>Built at</span><img src="/logo.svg" alt="Hack Apertus"></a>
+    <div class="search" aria-hidden="true">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <span>What are you looking for?</span>
+    </div>
+    <div class="icons">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.1"/></svg>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>
+      <a class="pill" href="#camera">Camera</a>
+      <a class="pill" href="#board" style="background:#fff;color:#000;border:1.5px solid #000">Product page</a>
     </div>
   </header>
 
-  <section id="camera" class="wrap" hidden>
-    <h1 style="margin:0;font-size:1.4rem">Photograph a product</h1>
+  <section id="camera" hidden>
+    <h2>Photograph a product</h2>
     <label class="shoot">Take a photo<input id="shot" type="file" accept="image/*" capture="environment" multiple></label>
     <label class="shoot secondary">Choose from gallery<input id="pick" type="file" accept="image/*" multiple></label>
     <label class="field">Product name (optional, like a shop title)<input id="title" type="text" placeholder="e.g. Drinking bottle 0.75 l"></label>
@@ -123,41 +159,44 @@
     <div class="sent" id="sent"></div>
   </section>
 
-  <main id="board" hidden>
-    <div class="wrap">
-      <div class="crumbs">Demo shop › Products › <span id="crumb-title">Your product</span></div>
-      <section class="product">
-        <div>
-          <div class="hero-frame" id="hero"><div class="placeholder">No photos yet.<br>Open this page on a phone, tap <b>Camera</b> and photograph any product.</div></div>
-          <div class="thumbs" id="thumbs"></div>
+  <div id="board" hidden>
+    <div class="layout">
+      <nav class="cats" id="cats" aria-label="Sort the photos by"></nav>
+      <main>
+        <div class="crumbs"><a href="#board">Product range</a><span class="sep">›</span><a href="#board">Demo</a><span class="sep">›</span><span class="here" id="crumb-title">Your product</span></div>
+        <div class="pdp">
+          <div class="vthumbs" id="thumbs"></div>
+          <div>
+            <div class="stage" id="hero"><div class="empty">No photos yet.<br>Open this page on a phone, tap <b>Camera</b> and photograph any product.</div></div>
+          </div>
+          <div class="buy">
+            <div class="flag"><b class="badge">HERO</b><span>image chosen <b>by the model</b></span></div>
+            <p class="score" id="score">–<small id="score-sub">confidence</small></p>
+            <h1 id="title-out"><b>Your</b> product</h1>
+            <p class="sub" id="photos-line">0 photos</p>
+            <div class="facts2">
+              <div><div class="k">Labels</div><div class="v" id="label-line">6 per photo</div></div>
+              <div><div class="k">Model</div><div class="v"><a href="https://huggingface.co/swiss-ai/Apertus-v1.5-8B">Apertus v1.5 8B</a></div></div>
+            </div>
+            <div class="why"><ul id="why"></ul></div>
+            <div class="ok" id="ok-line">Waiting for the first photo</div>
+            <a class="cta" href="#camera"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Add photos</a>
+            <div class="cta2">
+              <button type="button" id="all-labels"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>All labels</button>
+              <button type="button" id="reset"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>New product</button>
+            </div>
+            <p class="free">Labeled on one GPU, no data leaves the server</p>
+          </div>
           <div class="hidden-row" id="hidden-row" hidden></div>
         </div>
-        <div class="info">
-          <h1 id="title-out">Your product</h1>
-          <p class="by">Images labeled and sorted live by Apertus v1.5 8B, DINOv2 and six trained heads</p>
-          <div class="chips">
-            <span class="chip">photos <b id="n-photos">0</b></span>
-            <span class="chip">seconds per photo <b id="secs">–</b></span>
-            <span class="chip" id="queue-chip" hidden><b id="queue">0</b> labeling</span>
-          </div>
-          <div class="why">
-            <h2>Why this hero image</h2>
-            <ul id="why"><li>Waiting for the first labeled photo.</li></ul>
-            <p class="muted">Order: the product itself first, then white backdrop, a front view, no overlay, no person. Logos and placeholders are hidden.</p>
-          </div>
-          <p style="margin-top:16px"><button id="reset" type="button">New product</button></p>
-        </div>
-      </section>
-
-      <div class="board-head">
-        <h2>How the model sees each photo</h2>
-        <span style="color:var(--muted);font-size:.85rem">tap a photo for all six labels</span>
-      </div>
-      <div class="tabs" id="tabs" role="group" aria-label="Dimension"></div>
-      <div class="columns" id="columns"></div>
-      <footer>Hack Apertus Zurich · demo prototype, not a real shop</footer>
+        <section class="board">
+          <h2><span id="board-title">Perspective</span><span class="n" id="board-n">10</span></h2>
+          <div class="columns" id="columns"></div>
+        </section>
+      </main>
     </div>
-  </main>
+    <footer>Demo prototype built at Hack Apertus Zurich with Apertus v1.5 8B. Not a real shop.</footer>
+  </div>
 
   <aside id="detail" hidden></aside>
 
@@ -170,6 +209,8 @@ const DIMENSIONS = {
   text_classification: ["none", "promotional_text", "technical_specs", "nutritional_info", "certification_seal", "other"],
   text_language: ["none", "German", "English", "French", "Italian", "Dutch", "other"],
 };
+const NAMES = { perspective: "Perspective", subject: "Subject", background: "Background", individuals: "Person or animal",
+  text_classification: "Text overlay", text_language: "Text language" };
 const ALWAYS_SHOWN = { subject: ["full_product", "detail_closeup", "packaging", "package_and_product", "infographic", "logo"] };
 // Where the front points, seen from above with the camera at 6 o'clock (labeling guideline), in degrees (0 = up).
 const FRONT_ANGLE = { front_head_on: 180, front_angle_left: 225, front_angle_right: 135, left_side: 270, right_side: 90,
@@ -179,54 +220,41 @@ let state = { version: -1, items: [], gallery: { shown: [], hidden: [] } };
 let dimension = "perspective";
 let selected = null;
 const byId = () => Object.fromEntries(state.items.map((i) => [i.id, i]));
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 
 function clock(perspective) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 30 30"); svg.setAttribute("class", "clock");
   svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "front points: " + perspective);
-  const ring = document.createElementNS(ns, "circle");
-  ring.setAttribute("cx", 15); ring.setAttribute("cy", 15); ring.setAttribute("r", 11); svg.append(ring);
-  const cam = document.createElementNS(ns, "rect");
-  cam.setAttribute("x", 12); cam.setAttribute("y", 26.5); cam.setAttribute("width", 6); cam.setAttribute("height", 3); cam.setAttribute("class", "cam");
-  svg.append(cam);
+  const add = (name, attrs) => { const n = document.createElementNS(ns, name); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); svg.append(n); };
+  add("circle", { cx: 15, cy: 15, r: 11 });
+  add("rect", { x: 12, y: 26.5, width: 6, height: 3, class: "cam" });
   if (perspective in FRONT_ANGLE) {
-    const a = (FRONT_ANGLE[perspective] - 90) * Math.PI / 180;
-    const x = 15 + 9 * Math.cos(a), y = 15 + 9 * Math.sin(a);
-    const line = document.createElementNS(ns, "line");
-    line.setAttribute("x1", 15); line.setAttribute("y1", 15); line.setAttribute("x2", x); line.setAttribute("y2", y); line.setAttribute("class", "arrow");
-    const head = document.createElementNS(ns, "circle");
-    head.setAttribute("cx", x); head.setAttribute("cy", y); head.setAttribute("r", 2.6); head.setAttribute("class", "head");
-    svg.append(line, head);
+    const a = (FRONT_ANGLE[perspective] - 90) * Math.PI / 180, x = 15 + 9 * Math.cos(a), y = 15 + 9 * Math.sin(a);
+    add("line", { x1: 15, y1: 15, x2: x, y2: y, class: "arrow" });
+    add("circle", { cx: x, cy: y, r: 2.6, class: "head" });
   } else {
-    const mark = document.createElementNS(ns, "circle");
-    mark.setAttribute("cx", 15); mark.setAttribute("cy", 15); mark.setAttribute("r", perspective === "top_down" ? 3.5 : 6);
-    mark.setAttribute("class", perspective === "top_down" ? "head" : "arrow");
-    svg.append(mark);
+    add("circle", { cx: 15, cy: 15, r: perspective === "top_down" ? 3.5 : 6, class: perspective === "top_down" ? "head" : "arrow" });
   }
   return svg;
 }
 
 function card(item) {
-  const el = document.createElement("div");
-  el.className = "card" + (item.status === "done" ? "" : " pending");
-  el.dataset.id = item.id; el.tabIndex = 0;
-  const img = document.createElement("img"); img.src = "/image/" + item.id; img.alt = ""; el.append(img);
-  const row = document.createElement("div"); row.className = "row";
+  const c = el("div", "card" + (item.status === "done" ? "" : " pending"));
+  c.dataset.id = item.id; c.tabIndex = 0;
+  const img = el("img"); img.src = "/image/" + item.id; img.alt = ""; c.append(img);
   if (item.status === "done") {
     const [label, p] = item.labels[dimension][0];
-    const name = document.createElement("span"); name.textContent = label;
-    const pct = document.createElement("span"); pct.className = "pct"; pct.textContent = Math.round(p * 100) + "%";
-    row.append(name, pct); el.append(row);
-    const bar = document.createElement("div"); bar.className = "bar";
-    const fill = document.createElement("i"); fill.style.width = Math.round(p * 100) + "%"; bar.append(fill); el.append(bar);
-    if (dimension === "perspective") { const r = document.createElement("div"); r.className = "row"; r.append(clock(item.top.perspective)); el.append(r); }
+    const line = el("div", "line"); line.append(el("span", "", label), el("span", "pct", Math.round(p * 100) + "%")); c.append(line);
+    const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.round(p * 100) + "%"; bar.append(fill); c.append(bar);
+    if (dimension === "perspective") { const r = el("div", "line"); r.append(clock(item.top.perspective)); c.append(r); }
   } else {
-    row.textContent = item.status === "error" ? "error" : "labeling…"; el.append(row);
+    c.append(el("div", "line", item.status === "error" ? "error" : "labeling…"));
   }
-  el.onclick = () => { selected = item.id; renderDetail(); };
-  el.onkeydown = (e) => { if (e.key === "Enter") el.onclick(); };
-  return el;
+  c.onclick = () => { selected = item.id; renderDetail(); };
+  c.onkeydown = (e) => { if (e.key === "Enter") c.onclick(); };
+  return c;
 }
 
 function flip(container, render) {
@@ -234,14 +262,26 @@ function flip(container, render) {
   render();
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   container.querySelectorAll(".card").forEach((c) => {
-    const old = before.get(c.dataset.id);
-    if (!old) return;
-    const now = c.getBoundingClientRect();
-    const dx = old.left - now.left, dy = old.top - now.top;
+    const old = before.get(c.dataset.id); if (!old) return;
+    const now = c.getBoundingClientRect(), dx = old.left - now.left, dy = old.top - now.top;
     if (!dx && !dy) return;
     c.style.transition = "none"; c.style.transform = `translate(${dx}px, ${dy}px)`;
     requestAnimationFrame(() => { c.style.transition = "transform 650ms cubic-bezier(.2,.8,.2,1)"; c.style.transform = ""; });
   });
+}
+
+function renderCats() {
+  const nav = document.getElementById("cats");
+  const done = state.items.filter((i) => i.status === "done").length;
+  nav.replaceChildren(el("div", "label", "Sort the photos by"), ...Object.keys(DIMENSIONS).map((d) => {
+    const b = el("button"); b.type = "button"; b.setAttribute("aria-pressed", d === dimension);
+    b.append(el("span", "", NAMES[d]));
+    if (d === dimension && done) b.append(el("span", "count", done));
+    b.onclick = () => { dimension = d; renderCats(); renderColumns(); };
+    return b;
+  }));
+  document.getElementById("board-title").textContent = NAMES[dimension];
+  document.getElementById("board-n").textContent = DIMENSIONS[dimension].length;
 }
 
 function renderColumns() {
@@ -253,122 +293,92 @@ function renderColumns() {
     const used = new Set(done.map((i) => i.top[dimension]));
     const keep = new Set([...(ALWAYS_SHOWN[dimension] || DIMENSIONS[dimension]), ...used]);
     if (pending.length) {
-      const col = document.createElement("div"); col.className = "column";
-      const h = document.createElement("h3"); h.textContent = "arriving"; col.append(h);
+      const col = el("div", "column"); const h = el("h3", "", "arriving"); col.append(h);
       pending.forEach((m) => col.append(card(m))); container.append(col);
     }
     DIMENSIONS[dimension].filter((c) => keep.has(c)).forEach((cls) => {
       const members = done.filter((i) => i.top[dimension] === cls);
-      const col = document.createElement("div"); col.className = "column" + (members.length ? "" : " empty-col");
-      const h = document.createElement("h3");
-      const name = document.createElement("span"); name.textContent = cls;
-      const count = document.createElement("span"); count.textContent = members.length || "";
-      h.append(name, count); col.append(h);
+      const col = el("div", "column" + (members.length ? " has" : " empty-col"));
+      const h = el("h3"); h.append(el("span", "", cls), el("span", "dot")); col.append(h);
+      col.append(el("div", "sub", members.length ? `${members.length} photo${members.length > 1 ? "s" : ""}` : "–"));
       members.forEach((m) => col.append(card(m)));
       container.append(col);
     });
   });
 }
 
+let shownId = null;
 function renderProduct() {
-  const items = byId();
-  const shown = state.gallery.shown, hidden = state.gallery.hidden;
+  const items = byId(), shown = state.gallery.shown, hidden = state.gallery.hidden;
   const title = (state.items.find((i) => i.title) || {}).title || "Your product";
-  document.getElementById("title-out").textContent = title;
+  const words = title.split(" ");
+  const h1 = document.getElementById("title-out"); h1.replaceChildren(el("b", "", words[0]), document.createTextNode(" " + words.slice(1).join(" ")));
   document.getElementById("crumb-title").textContent = title;
+  if (!shown.includes(shownId)) shownId = shown[0] || null;
   const hero = document.getElementById("hero");
   hero.replaceChildren();
-  if (shown.length) {
-    const img = document.createElement("img"); img.src = "/image/" + shown[0]; img.alt = "hero image";
-    const ribbon = document.createElement("span"); ribbon.className = "ribbon"; ribbon.textContent = "HERO IMAGE";
-    hero.append(img, ribbon);
-    const top = items[shown[0]].top, why = document.getElementById("why");
-    why.replaceChildren(...[
-      `subject: ${top.subject}`, `background: ${top.background}`, `perspective: ${top.perspective}`,
-      `text overlay: ${top.text_classification}`, `person or animal: ${top.individuals === "none" ? "none" : "yes"}`,
-    ].map((t) => { const li = document.createElement("li"); li.textContent = t; return li; }));
+  if (shownId) {
+    const img = el("img"); img.src = "/image/" + shownId; img.alt = items[shownId].top.subject; hero.append(img);
+    const top = items[shown[0]].top, conf = items[shown[0]].confidence;
+    document.getElementById("score").replaceChildren(document.createTextNode(Math.round(conf * 100) + "%"), el("small", "", "confidence"));
+    document.getElementById("why").replaceChildren(...[
+      ["subject", top.subject], ["background", top.background], ["perspective", top.perspective],
+      ["text overlay", top.text_classification], ["person or animal", top.individuals === "none" ? "none" : "yes"],
+    ].map(([k, v]) => { const li = el("li"); li.append(el("span", "", k), el("span", "", v)); return li; }));
   } else {
-    const p = document.createElement("div"); p.className = "placeholder";
-    p.textContent = state.items.length ? "Labeling the first photo…" : "No photos yet. Open this page on a phone, tap Camera and photograph any product.";
-    hero.append(p);
+    hero.append(el("div", "empty", state.items.length ? "Labeling the first photo…" : "No photos yet. Open this page on a phone, tap Camera and photograph any product."));
   }
-  const thumbs = document.getElementById("thumbs");
-  thumbs.replaceChildren(...shown.map((id, k) => {
-    const t = document.createElement("div"); t.className = "t" + (k === 0 ? " first" : "");
-    const img = document.createElement("img"); img.src = "/image/" + id; img.alt = items[id].top.subject;
-    const n = document.createElement("span"); n.className = "n"; n.textContent = k + 1;
-    t.append(img, n); t.onclick = () => { selected = id; renderDetail(); }; return t;
+  const n = state.items.length;
+  document.getElementById("photos-line").textContent = `${n} photo${n === 1 ? "" : "s"} · ${shown.length} shown · ${hidden.length} hidden`;
+  document.getElementById("thumbs").replaceChildren(...shown.map((id) => {
+    const t = el("div", "t" + (id === shownId ? " on" : "")); const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject;
+    t.append(img); t.onclick = () => { shownId = id; renderProduct(); }; return t;
   }));
   const row = document.getElementById("hidden-row");
   row.hidden = !hidden.length;
-  row.replaceChildren(document.createTextNode("Hidden by the model (logo or placeholder):"), ...hidden.map((id) => {
-    const img = document.createElement("img"); img.src = "/image/" + id; img.alt = items[id].top.subject; return img;
-  }));
-}
-
-function renderTabs() {
-  document.getElementById("tabs").replaceChildren(...Object.keys(DIMENSIONS).map((d) => {
-    const b = document.createElement("button"); b.type = "button"; b.textContent = d;
-    b.setAttribute("aria-pressed", d === dimension);
-    b.onclick = () => { dimension = d; renderTabs(); renderColumns(); };
-    return b;
-  }));
+  row.replaceChildren(el("span", "", "Hidden by the model (logo or placeholder):"), ...hidden.map((id) => { const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject; return img; }));
 }
 
 function renderDetail() {
   const box = document.getElementById("detail");
   const item = state.items.find((i) => i.id === selected);
   if (!item || item.status !== "done") { box.hidden = true; return; }
-  const close = document.createElement("button"); close.className = "close"; close.type = "button"; close.textContent = "Close";
-  close.onclick = () => { selected = null; box.hidden = true; };
-  const img = document.createElement("img"); img.src = "/image/" + item.id; img.alt = "";
-  const meta = document.createElement("p"); meta.style.color = "var(--muted)"; meta.textContent = `${item.seconds} s on the GPU`;
-  const dl = document.createElement("dl");
+  const close = el("button", "close", "Close"); close.type = "button"; close.onclick = () => { selected = null; box.hidden = true; };
+  const img = el("img"); img.src = "/image/" + item.id; img.alt = "";
+  const dl = el("dl");
   Object.keys(DIMENSIONS).forEach((d) => {
-    const dt = document.createElement("dt"); dt.textContent = d;
-    const dd = document.createElement("dd");
+    const dd = el("dd");
     item.labels[d].forEach(([label, p]) => {
-      const line = document.createElement("div"); line.className = "line";
-      const left = document.createElement("div");
-      const name = document.createElement("div"); name.textContent = label;
-      const bar = document.createElement("div"); bar.className = "bar";
-      const fill = document.createElement("i"); fill.style.width = Math.round(p * 100) + "%"; bar.append(fill);
-      left.append(name, bar);
-      const pct = document.createElement("span"); pct.textContent = Math.round(p * 100) + "%";
-      line.append(left, pct); dd.append(line);
+      const l = el("div", "l"); const left = el("div"); left.append(el("div", "", label));
+      const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.round(p * 100) + "%"; bar.append(fill); left.append(bar);
+      l.append(left, el("span", "", Math.round(p * 100) + "%")); dd.append(l);
     });
-    dl.append(dt, dd);
+    dl.append(el("dt", "", NAMES[d]), dd);
   });
-  box.replaceChildren(close, img, meta, dl); box.hidden = false;
+  box.replaceChildren(close, img, el("p", "", `${item.seconds} s on the GPU`), dl); box.hidden = false;
 }
 
 function renderStats() {
-  document.getElementById("n-photos").textContent = state.items.length;
   const done = state.items.filter((i) => i.status === "done");
-  document.getElementById("secs").textContent = done.length ? (done.reduce((s, i) => s + i.seconds, 0) / done.length).toFixed(2) : "–";
   const waiting = state.items.filter((i) => i.status === "queued" || i.status === "running").length;
-  document.getElementById("queue").textContent = waiting;
-  document.getElementById("queue-chip").hidden = !waiting;
+  const secs = done.length ? (done.reduce((s, i) => s + i.seconds, 0) / done.length).toFixed(2) : null;
+  document.getElementById("ok-line").textContent = secs
+    ? `Labeled in ${secs} s per photo` + (waiting ? ` · ${waiting} more on the way` : "")
+    : (waiting ? `Labeling ${waiting} photo${waiting > 1 ? "s" : ""}…` : "Waiting for the first photo");
 }
 
 function renderSent() {
   document.getElementById("sent").replaceChildren(...state.items.slice().reverse().map((i) => {
-    const f = document.createElement("figure");
-    const img = document.createElement("img"); img.src = "/image/" + i.id; img.alt = "";
-    const c = document.createElement("figcaption");
-    c.textContent = i.status === "done" ? `${i.top.subject} · ${i.top.perspective}` : (i.status === "error" ? "error" : "labeling…");
-    f.append(img, c); return f;
+    const f = el("figure"); const img = el("img"); img.src = "/image/" + i.id; img.alt = "";
+    f.append(img, el("figcaption", "", i.status === "done" ? `${i.top.subject} · ${i.top.perspective}` : (i.status === "error" ? "error" : "labeling…")));
+    return f;
   }));
 }
 
 async function poll() {
   try {
     const next = await (await fetch("/state", { cache: "no-store" })).json();
-    if (next.version !== state.version) {
-      state = next;
-      renderStats(); renderProduct(); renderColumns(); renderSent();
-      if (selected) renderDetail();
-    }
+    if (next.version !== state.version) { state = next; renderStats(); renderProduct(); renderCats(); renderColumns(); renderSent(); if (selected) renderDetail(); }
   } catch (e) { /* the server restarts or the network drops: try again on the next tick */ }
   setTimeout(poll, 1000);
 }
@@ -387,10 +397,10 @@ async function send(files) {
 document.getElementById("shot").onchange = (e) => { send(e.target.files); e.target.value = ""; };
 document.getElementById("pick").onchange = (e) => { send(e.target.files); e.target.value = ""; };
 let armed = false;
+document.getElementById("all-labels").onclick = () => { selected = state.gallery.shown[0] || null; renderDetail(); };
 document.getElementById("reset").onclick = async (e) => {
-  if (!armed) { armed = true; e.target.textContent = "Tap again to clear"; setTimeout(() => { armed = false; e.target.textContent = "New product"; }, 3000); return; }
-  armed = false; e.target.textContent = "New product";
-  await fetch("/reset", { method: "POST" });
+  if (!armed) { armed = true; e.target.textContent = "Click again to clear"; setTimeout(() => { armed = false; e.target.textContent = "New product"; }, 3000); return; }
+  armed = false; e.target.textContent = "New product"; await fetch("/reset", { method: "POST" });
 };
 
 function route() {
@@ -399,7 +409,7 @@ function route() {
   document.getElementById("board").hidden = camera;
 }
 addEventListener("hashchange", route);
-route(); renderTabs(); poll();
+route(); renderCats(); poll();
 </script>
 </body>
 </html>
