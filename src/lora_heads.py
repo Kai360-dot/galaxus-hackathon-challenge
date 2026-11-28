@@ -288,7 +288,7 @@ def train(arguments):
                                                              ignore_index=-1)
                            for j, d in enumerate(common.DIMENSIONS) if (labels[:, j] >= 0).any()) / len(common.DIMENSIONS)
                 (loss / arguments.accumulation).backward()
-                losses.append(float(loss))
+                losses.append(loss.item())
                 seen += len(item["image_ids"])
                 if (k + 1) % arguments.accumulation:
                     continue
@@ -306,8 +306,9 @@ def train(arguments):
                 if step >= total:
                     break
         except torch.cuda.OutOfMemoryError:
-            # Too large a batch for this GPU: halve it, keep the effective batch by accumulating, and go on.
-            if step > 0 or arguments.batch_size == 1:
+            # A batch too large for this GPU (images differ in size): halve the batch, keep the effective batch by
+            # accumulating, and go on with this epoch.
+            if arguments.batch_size == 1:
                 raise
             optimizer.zero_grad(set_to_none=True)
             captured.clear()

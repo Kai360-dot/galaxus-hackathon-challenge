@@ -37,6 +37,7 @@ ls "$WORK/helpers"
 
 step "train $RUN_NAME"
 cd repo
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # images differ in size: avoid fragmentation
 python src/lora_heads.py train --data-dir "$WORK/data" \
   --extras "$WORK/helpers/dino_448_mirrored" "$WORK/helpers/pixels_mirrored" --init "$WORK/helpers/init_heads.pt" \
   --output-dir "$WORK/$RUN_NAME" --epochs "$EPOCHS" --results-repo "$RESULTS_REPO" --run-name "$RUN_NAME" \
