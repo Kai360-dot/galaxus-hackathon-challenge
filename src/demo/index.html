@@ -107,7 +107,7 @@
   .hidden-row img { width: 46px; height: 46px; object-fit: contain; border: 1px dashed #bbb; border-radius: 6px; filter: grayscale(1); opacity: .5; }
   .buy .flag { display: flex; align-items: center; gap: 10px; font-size: .95rem; padding-bottom: 8px; border-bottom: 4px solid var(--line); position: relative; }
   .buy .flag b.badge { background: #000; color: #fff; font-weight: 700; padding: 3px 9px; font-size: 1rem; }
-  .buy .flag::after { content: ""; position: absolute; left: 0; bottom: -4px; height: 4px; width: 22%; background: #000; }
+  .buy .flag::after { content: ""; position: absolute; left: 0; bottom: -4px; height: 4px; width: var(--pos, 22%); background: #000; transition: width .45s cubic-bezier(.3,1.3,.5,1); }
   .buy .score { font-size: 2.6rem; font-weight: 700; margin: 14px 0 0; line-height: 1; font-variant-numeric: tabular-nums; }
   .buy .score small { font-size: 1.1rem; font-weight: 400; margin-left: 8px; }
   .buy h1 { font-size: clamp(1.8rem, 2.6vw, 2.5rem); font-weight: 400; margin: 6px 0 0; line-height: 1.15; text-wrap: balance; }
@@ -125,6 +125,12 @@
   .cta2 button { display: flex; align-items: center; justify-content: center; gap: 10px; background: #f2f2f2; border: 1px solid #cfcfcf; border-radius: 6px;
     padding: 13px; font-size: 1.1rem; cursor: pointer; color: #000; }
   .ctas .shot { display: none; }
+  /* labels of the image on show: on phones only (on a large screen they are on the labels page) */
+  .why { display: none; list-style: none; margin: 16px 0 0; padding: 0; font-size: .95rem; }
+  .why li { display: grid; grid-template-columns: 1fr auto 3.2em; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .why li span:first-child { color: var(--muted); }
+  .why li .pct { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  @media (max-width: 700px) { .why:not(:empty) { display: block; } }
   .cta .icon, .cta2 .icon { stroke: currentColor; width: 22px; height: 22px; }
 
   /* Second screen: every class of all six dimensions, each photo in the class the model gave it */
@@ -287,7 +293,7 @@
             <p class="upstatus" id="send-status"></p>
           </div>
           <div class="buy">
-            <div class="flag"><b class="badge">HERO</b><span>image chosen <b>by the model</b></span></div>
+            <div class="flag" id="flag"><b class="badge">HERO</b><span>main image, chosen <b>by the model</b></span></div>
             <p class="score" id="score">–<small id="score-sub">confidence</small></p>
             <h1 id="title-out"><b>Your</b> product</h1>
             <p class="sub" id="photos-line">0 photos</p>
@@ -295,6 +301,7 @@
               <div><div class="k">Labels</div><div class="v" id="label-line">6 per photo</div></div>
               <div><div class="k">Model</div><div class="v"><a href="https://huggingface.co/swiss-ai/Apertus-v1.5-8B">Apertus v1.5 8B</a></div></div>
             </div>
+            <ul class="why" id="why"></ul>
             <div class="ok" id="ok-line">Waiting for the first photo</div>
             <div class="ctas">
               <button class="cta shot" type="button" data-shot><svg class="icon" viewBox="0 0 24 24" fill="none" stroke-width="1.6"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Take a photo</button>
@@ -417,12 +424,21 @@ function renderProduct(slide = 0) {
   if (!shown.includes(shownId)) shownId = shown[0] || null;
   const hero = document.getElementById("hero");
   hero.replaceChildren();
+  document.getElementById("why").replaceChildren();
   if (shownId) {
     const main = photo(shownId, items[shownId].top.subject); hero.append(main);
     if (slide && !matchMedia("(prefers-reduced-motion: reduce)").matches)
       main.animate([{ transform: `translateX(${slide > 0 ? 60 : -60}px)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" });
     if (shown.length > 1) hero.append(arrow("prev", -1, "M15 5l-7 7 7 7"), arrow("next", 1, "M9 5l7 7-7 7"));
-    const top = items[shown[0]].top, conf = items[shown[0]].confidence;
+    // The flag and the score describe the image on show: the hero (first in shop order) or image k of n.
+    const k = shown.indexOf(shownId), conf = items[shownId].confidence;
+    document.getElementById("flag").replaceChildren(el("b", "badge", k ? `${k + 1} / ${shown.length}` : "HERO"),
+      el("span", "", k ? `image ${k + 1} of ${shown.length} in the order chosen by the model` : "main image, chosen by the model"));
+    document.getElementById("why").replaceChildren(...Object.keys(DIMENSIONS).map((d) => {
+      const [label, p] = items[shownId].labels[d][0], li = el("li");
+      li.append(el("span", "", NAMES[d]), el("b", "", pretty(label)), el("span", "pct", Math.round(p * 100) + "%")); return li;
+    }));
+    document.getElementById("flag").style.setProperty("--pos", ((k + 1) / shown.length * 100) + "%");
     document.getElementById("score").replaceChildren(document.createTextNode(Math.round(conf * 100) + "%"), el("small", "", "confidence"));
   } else if (state.items.length) {
     hero.append(el("div", "empty", "Labeling the first photo…"));
