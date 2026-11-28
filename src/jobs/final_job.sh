@@ -20,7 +20,7 @@ git clone -q "$REPO_URL" repo && git -C repo checkout -q "$COMMIT"
 pip install -q uv
 uv pip install --system -q \
   "transformers[torch,vision,audio] @ git+https://github.com/swiss-ai/transformers.git@3797303dda74844e3d1f8977ff5518bb91f818b4" \
-  accelerate "pandas>=2.1" pillow tqdm huggingface_hub kaggle==2.2.5 six py7zr
+  accelerate "pandas>=2.1" pillow tqdm huggingface_hub kaggle==2.2.5 six py7zr scipy
 uv pip install --system -q torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
   --index-url https://download.pytorch.org/whl/cu128
 python -c "import torch; print('torch', torch.__version__, torch.cuda.get_device_name(0))"
@@ -48,10 +48,17 @@ cd repo
 python src/heads.py extract --data-dir "$WORK/data" --features-dir "$WORK/features" --parts final \
   --quantization none --image-size 512 --prompt vague --layers 24 --truncate 2>&1 | grep --line-buffered -v "it/s\]"
 
+step "DINOv2 448 (image + mirror) and pixel measures (plain, and image + mirror)"
+python src/dino.py --data-dir "$WORK/data" --features-dir "$WORK/dino_448_mirrored" --parts final --size 448 --mirror-all 2>&1 | grep -v "it/s\]" | tail -2
+python src/pixel_features.py --data-dir "$WORK/data" --features-dir "$WORK/pixels" --parts final 2>&1 | tail -1
+python src/pixel_features.py --data-dir "$WORK/data" --features-dir "$WORK/pixels_mirrored" --parts final --mirror-all 2>&1 | tail -1
+
 step "upload to $RESULTS_REPO (private)"
 python - <<PY
 from huggingface_hub import HfApi
-HfApi().upload_folder(repo_id="$RESULTS_REPO", repo_type="dataset", folder_path="$WORK/features/final",
-                      path_in_repo="heads_512_final/features/final")
+api = HfApi()
+for local, remote in [("features/final", "heads_512/features/final"), ("dino_448_mirrored/final", "dino_448_mirrored/final"),
+                      ("pixels/final", "pixels/final"), ("pixels_mirrored/final", "pixels_mirrored/final")]:
+    api.upload_folder(repo_id="$RESULTS_REPO", repo_type="dataset", folder_path="$WORK/" + local, path_in_repo="final/" + remote)
 PY
 step "done"
