@@ -109,22 +109,23 @@
   .board { margin-top: 56px; }
   .board h2 { display: flex; align-items: center; gap: 12px; }
   .board h2 .n { font-size: .95rem; font-weight: 500; background: #ececec; border-radius: 999px; padding: 2px 10px; }
-  .columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 12px; }
-  .column { border: 1px solid #d6d6d6; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-height: 70px; }
-  .column.has { border-color: #bdbdbd; }
-  .column.empty-col { color: #9e9e9e; }
-  .column h3 { margin: 0; font-size: 1.15rem; font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 8px; word-break: break-word; }
-  .column h3 .dot { width: 14px; height: 14px; border-radius: 50%; background: #5cc15c; flex: 0 0 auto; }
+  /* every class of the dimension side by side in one row, like the size tiles of a shop */
+  .columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(92px, 1fr); gap: 8px; overflow-x: auto; padding-bottom: 6px; }
+  .column { border: 1px solid #d6d6d6; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .column.has { border-color: #9e9e9e; }
+  .column.empty-col { color: #a8a8a8; }
+  .column h3 { margin: 0; font-size: .92rem; font-weight: 500; line-height: 1.2; display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; min-height: 2.4em; }
+  .column h3 .dot { width: 11px; height: 11px; border-radius: 50%; background: #5cc15c; flex: 0 0 auto; margin-top: 3px; }
   .column.empty-col h3 .dot { background: #e0e0e0; }
-  .column .sub { color: var(--muted); font-size: .9rem; margin-top: -8px; }
-  .card { cursor: pointer; display: flex; flex-direction: column; gap: 6px; will-change: transform; }
-  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--soft); border-radius: 8px; display: block; }
-  .card .line { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .9rem; }
-  .card .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .column .head2 { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--muted); font-size: .8rem; }
+  .column .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .card { cursor: pointer; display: flex; flex-direction: column; gap: 2px; will-change: transform; min-width: 0; }
+  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--soft); border-radius: 6px; display: block; }
+  .card .pct { color: var(--muted); font-size: .75rem; text-align: center; font-variant-numeric: tabular-nums; }
   .card.pending { opacity: .5; }
   .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--fg); }
-  .clock { width: 34px; height: 34px; flex: 0 0 auto; }
+  .clock { width: 30px; height: 30px; flex: 0 0 auto; }
   .clock circle { fill: none; stroke: #bdbdbd; stroke-width: 1.5; }
   .clock .cam { fill: #7a7a7a; }
   .clock .arrow { stroke: var(--s3); stroke-width: 2.8; fill: none; stroke-linecap: round; }
@@ -259,15 +260,8 @@ function clock(perspective) {
 function card(item) {
   const c = el("div", "card" + (item.status === "done" ? "" : " pending"));
   c.dataset.id = item.id; c.tabIndex = 0;
-  const img = el("img"); img.src = "/image/" + item.id; img.alt = ""; c.append(img);
-  if (item.status === "done") {
-    const [label, p] = item.labels[dimension][0];
-    const line = el("div", "line"); line.append(el("span", "", label), el("span", "pct", Math.round(p * 100) + "%")); c.append(line);
-    const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.round(p * 100) + "%"; bar.append(fill); c.append(bar);
-    if (dimension === "perspective") { const r = el("div", "line"); r.append(clock(item.top.perspective)); c.append(r); }
-  } else {
-    c.append(el("div", "line", item.status === "error" ? "error" : "labeling…"));
-  }
+  const img = el("img"); img.src = "/image/" + item.id; img.alt = item.status === "done" ? item.top[dimension] : ""; c.append(img);
+  c.append(el("div", "pct", item.status === "done" ? Math.round(item.labels[dimension][0][1] * 100) + "%" : (item.status === "error" ? "error" : "…")));
   c.onclick = () => { selected = item.id; renderDetail(); };
   c.onkeydown = (e) => { if (e.key === "Enter") c.onclick(); };
   return c;
@@ -308,18 +302,17 @@ function renderColumns() {
     const pending = state.items.filter((i) => i.status !== "done");
     const used = new Set(done.map((i) => i.top[dimension]));
     const keep = new Set([...(ALWAYS_SHOWN[dimension] || DIMENSIONS[dimension]), ...used]);
-    if (pending.length) {
-      const col = el("div", "column"); const h = el("h3", "", "arriving"); col.append(h);
-      pending.forEach((m) => col.append(card(m))); container.append(col);
-    }
-    DIMENSIONS[dimension].filter((c) => keep.has(c)).forEach((cls) => {
-      const members = done.filter((i) => i.top[dimension] === cls);
+    const tile = (name, members, cls) => {
       const col = el("div", "column" + (members.length ? " has" : " empty-col"));
-      const h = el("h3"); h.append(el("span", "", cls), el("span", "dot")); col.append(h);
-      col.append(el("div", "sub", members.length ? `${members.length} photo${members.length > 1 ? "s" : ""}` : "–"));
-      members.forEach((m) => col.append(card(m)));
-      container.append(col);
-    });
+      const h = el("h3"); h.append(el("span", "", name.replaceAll("_", " ")), el("span", "dot")); col.append(h);
+      const head2 = el("div", "head2"); head2.append(el("span", "", members.length ? `${members.length} photo${members.length > 1 ? "s" : ""}` : "–"));
+      if (dimension === "perspective" && cls) head2.append(clock(cls));
+      col.append(head2);
+      const cards = el("div", "cards"); members.forEach((m) => cards.append(card(m))); col.append(cards);
+      return col;
+    };
+    if (pending.length) container.append(tile("arriving", pending, null));
+    DIMENSIONS[dimension].filter((c) => keep.has(c)).forEach((cls) => container.append(tile(cls, done.filter((i) => i.top[dimension] === cls), cls)));
   });
 }
 
