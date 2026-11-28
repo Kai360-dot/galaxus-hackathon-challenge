@@ -53,7 +53,7 @@ trap 'rm -f "$secrets" "$archive"' EXIT
 grep -q "^KAGGLE_CREDENTIALS_B64=." "$secrets" || { echo "the Kaggle credentials could not be read"; exit 1; }
 
 optional=()
-for name in MODE MINUTES RUN_NAME PARTS; do
+for name in MODE MINUTES RUN_NAME PARTS WEIGHTS_REPO; do
   if [ -n "${!name+set}" ]; then optional+=(--env "$name=${!name}"); fi
 done
 
