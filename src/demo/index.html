@@ -71,7 +71,12 @@
   .vthumbs .t { width: 80px; height: 80px; border-radius: 8px; border: 1px solid var(--line); background: #fff; padding: 4px; cursor: pointer; }
   .vthumbs .t.on { border: 2px solid #444; }
   .vthumbs .t img { width: 100%; height: 100%; object-fit: contain; display: block; }
-  .stage { min-height: 420px; display: grid; place-items: center; }
+  .stage { min-height: 420px; display: grid; place-items: center; position: relative; touch-action: pan-y; }
+  .stage .nav { position: absolute; top: 50%; transform: translateY(-50%); width: 50px; height: 50px; border-radius: 50%; border: none;
+    background: rgba(60, 60, 60, .85); display: grid; place-items: center; cursor: pointer; padding: 0; }
+  .stage .nav:hover { background: #2b2b2b; }
+  .stage .nav svg { width: 22px; height: 22px; stroke: #fff; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .stage .nav.prev { left: 0; } .stage .nav.next { right: 0; }
   .stage img { max-width: 100%; max-height: 560px; object-fit: contain; }
   .stage .empty { color: var(--muted); font-size: 1.15rem; text-align: center; line-height: 1.6; padding: 40px 10px; }
   .upload { width: 100%; min-height: 440px; border: 2px dashed #c9c9c9; border-radius: 12px; display: flex; flex-direction: column; align-items: center;
@@ -339,7 +344,8 @@ function renderProduct() {
   const hero = document.getElementById("hero");
   hero.replaceChildren();
   if (shownId) {
-    const img = el("img"); img.src = "/image/" + shownId; img.alt = items[shownId].top.subject; hero.append(img);
+    const img = el("img"); img.src = "/image/" + shownId; img.alt = items[shownId].top.subject; img.draggable = false; hero.append(img);
+    if (shown.length > 1) hero.append(arrow("prev", -1, "M15 5l-7 7 7 7"), arrow("next", 1, "M9 5l7 7-7 7"));
     const top = items[shown[0]].top, conf = items[shown[0]].confidence;
     document.getElementById("score").replaceChildren(document.createTextNode(Math.round(conf * 100) + "%"), el("small", "", "confidence"));
     document.getElementById("why").replaceChildren(...[
@@ -360,6 +366,20 @@ function renderProduct() {
   const row = document.getElementById("hidden-row");
   row.hidden = !hidden.length;
   row.replaceChildren(el("span", "", "Hidden by the model (logo or placeholder):"), ...hidden.map((id) => { const img = el("img"); img.src = "/image/" + id; img.alt = items[id].top.subject; return img; }));
+}
+
+// Slider of the main image: arrows, arrow keys and swipes step through the images in shop order, round and round.
+function step(by) {
+  const shown = state.gallery.shown;
+  if (shown.length < 2) return;
+  shownId = shown[(shown.indexOf(shownId) + by + shown.length) % shown.length];
+  renderProduct(); renderColumns();
+}
+function arrow(cls, by, d) {
+  const b = el("button", "nav " + cls); b.type = "button"; b.setAttribute("aria-label", by < 0 ? "Previous image" : "Next image");
+  b.innerHTML = `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  b.onclick = () => step(by);
+  return b;
 }
 
 function uploadZone() {
@@ -439,6 +459,13 @@ const stage = document.getElementById("hero");
 ["dragenter", "dragover"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.add("drag"); stage.querySelector(".upload")?.classList.add("drag"); }));
 ["dragleave", "drop"].forEach((t) => stage.addEventListener(t, (e) => { e.preventDefault(); stage.classList.remove("drag"); stage.querySelector(".upload")?.classList.remove("drag"); }));
 stage.addEventListener("drop", (e) => send(e.dataTransfer.files));
+let swipeX = null;
+stage.addEventListener("pointerdown", (e) => { swipeX = e.clientX; });
+stage.addEventListener("pointerup", (e) => { if (swipeX !== null && Math.abs(e.clientX - swipeX) > 50) step(e.clientX < swipeX ? 1 : -1); swipeX = null; });
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1);
+});
 renderCats(); renderProduct(); poll();
 </script>
 </body>
