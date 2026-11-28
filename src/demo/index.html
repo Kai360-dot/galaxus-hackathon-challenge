@@ -264,22 +264,22 @@
     <div class="layout">
       <nav class="cats" aria-hidden="true">
         <div class="tree">Product range</div>
-        <div class="tree">Sports</div>
-        <div class="parent">Running</div>
+        <div class="tree">Demo category</div>
+        <div class="parent">Demo subcategory</div>
         <div class="sub">Athletics</div>
         <div class="sub">Backpacks</div>
         <div class="sub">Headlamp accessories</div>
         <div class="sub">Headlamps</div>
         <div class="sub">Running accessories</div>
         <div class="sub">Running clothes</div>
-        <div class="sub on">Running shoes</div>
+        <div class="sub on">Demo product type</div>
         <div class="sub">Smartphone sports armbands</div>
         <div class="sub">Sports nutrition + Supplements</div>
         <div class="sub">Wearables</div>
         <div class="offers"><b>Offers</b><span>Running shoes Black Friday</span><span>Clearance: Running</span></div>
       </nav>
       <main>
-        <div class="crumbs"><a>Product range</a><span class="sep">›</span><a>Sports</a><span class="sep">›</span><a>Running</a><span class="sep">›</span><a>Running shoes</a><span class="sep">›</span><span class="here" id="crumb-title">Your product</span></div>
+        <div class="crumbs"><a>Product range</a><span class="sep">›</span><a>Demo category</a><span class="sep">›</span><a>Demo subcategory</a><span class="sep">›</span><a>Demo product type</a><span class="sep">›</span><span class="here">Demo product</span></div>
         <div class="pdp">
           <div class="vthumbs" id="thumbs"></div>
           <div>
@@ -414,7 +414,6 @@ function renderProduct(slide = 0) {
   const title = (state.items.find((i) => i.title) || {}).title || "Your product";
   const words = title.split(" ");
   const h1 = document.getElementById("title-out"); h1.replaceChildren(el("b", "", words[0]), document.createTextNode(" " + words.slice(1).join(" ")));
-  document.getElementById("crumb-title").textContent = title;
   if (!shown.includes(shownId)) shownId = shown[0] || null;
   const hero = document.getElementById("hero");
   hero.replaceChildren();
