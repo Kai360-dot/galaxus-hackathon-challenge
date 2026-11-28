@@ -255,7 +255,7 @@ def train(arguments):
     warmup = max(1, round(0.03 * total))
     schedule = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda s: min(1.0, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / total))))
-    evaluate_every = max(1, steps_per_epoch // 2)
+    evaluate_every = max(1, steps_per_epoch // arguments.evaluations_per_epoch)
     print(f"{len(dataset)} train images, batch {arguments.batch_size} x {arguments.accumulation}, {total} steps, "
           f"evaluation every {evaluate_every} steps", flush=True)
 
@@ -391,6 +391,7 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="train images, 0 for all (tests)")
     parser.add_argument("--holdout-limit", type=int, default=0, help="holdout images, 0 for all (tests)")
     parser.add_argument("--no-evaluate-start", dest="evaluate_start", action="store_false")
+    parser.add_argument("--evaluations-per-epoch", type=int, default=4, help="holdout score and checkpoint this often")
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--results-repo", help="private dataset repo for checkpoints")
     parser.add_argument("--run-name", default="lora_heads")
