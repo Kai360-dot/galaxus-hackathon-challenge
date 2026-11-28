@@ -6,7 +6,7 @@
 #     JOB=heads_job.sh src/jobs/launch_job.sh your-user/galaxus-work l40sx1 512
 #     JOB=lora_classifier_job.sh MINUTES=100 src/jobs/launch_job.sh your-user/galaxus-work h200 512
 #
-# MODE, MINUTES and RUN_NAME are passed on to the job when set. FINAL_PASSPHRASE, when set, goes to the job as a
+# MODE, MINUTES, RUN_NAME and PARTS are passed on to the job when set. FINAL_PASSPHRASE, when set, goes to the job as a
 # secret (for the final images; never write it into a file of this repository).
 set -euo pipefail
 RESULTS_REPO=${1:?private results dataset repo, e.g. your-user/galaxus-work}
@@ -53,8 +53,8 @@ trap 'rm -f "$secrets" "$archive"' EXIT
 grep -q "^KAGGLE_CREDENTIALS_B64=." "$secrets" || { echo "the Kaggle credentials could not be read"; exit 1; }
 
 optional=()
-for name in MODE MINUTES RUN_NAME; do
-  if [ -n "${!name:-}" ]; then optional+=(--env "$name=${!name}"); fi
+for name in MODE MINUTES RUN_NAME PARTS; do
+  if [ -n "${!name+set}" ]; then optional+=(--env "$name=${!name}"); fi
 done
 
 "$HF" jobs run --detach --flavor "$FLAVOR" --timeout "$TIMEOUT" --name "galaxus-${JOB%_job.sh}-$IMAGE_SIZE${PROMPT:+-$PROMPT}${MODE:+-$MODE}" \

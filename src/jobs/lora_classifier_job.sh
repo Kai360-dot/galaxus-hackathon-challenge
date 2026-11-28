@@ -8,7 +8,8 @@
 # MODE=predict: the checkpoint of RUN_NAME from RESULTS_REPO predicts dev and, when the secret FINAL_PASSPHRASE is
 #   set, the final images. Predictions and the submission file go to RESULTS_REPO/RUN_NAME/final_run.
 #
-# Environment: COMMIT, RESULTS_REPO, MODE, IMAGE_SIZE (default 512), MINUTES (default 100), RUN_NAME, EXTRA_ARGS.
+# Environment: COMMIT, RESULTS_REPO, MODE, IMAGE_SIZE (default 512), MINUTES (default 100), RUN_NAME, EXTRA_ARGS,
+# PARTS (predict: parts besides the final images, default dev; empty for none).
 # Secrets: HF_TOKEN, KAGGLE_CREDENTIALS_B64, FINAL_PASSPHRASE (optional). Launch with
 # JOB=lora_classifier_job.sh src/jobs/launch_job.sh.
 set -euo pipefail
@@ -78,7 +79,11 @@ else
   FINAL_CSV=()
   if [ -n "${FINAL_PASSPHRASE:-}" ]; then
     step "unpack the final images"
-    python - <<'PY'
+    # 7z as in the README of the data; py7zr if 7z cannot be installed or fails.
+    (apt-get update -qq && apt-get install -y -qq p7zip-full) >/dev/null 2>&1 || true
+    if ! { command -v 7z >/dev/null && 7z x -y -p"$FINAL_PASSPHRASE" -o"$WORK/data/final" "$WORK/data/final_encrypted.bin" >/dev/null; }; then
+      rm -rf "$WORK/data/final"
+      python - <<'PY'
 import os
 
 import py7zr
@@ -86,6 +91,7 @@ import py7zr
 with py7zr.SevenZipFile("/work/data/final_encrypted.bin", password=os.environ["FINAL_PASSPHRASE"]) as archive:
     archive.extractall("/work/data/final")
 PY
+    fi
     FINAL_CSV=(--csv "$(find "$WORK/data/final" -name final.csv | head -1)")
     echo "final csv: ${FINAL_CSV[1]}, $(find "$WORK/data/final" -type f | wc -l) files"
   fi
@@ -95,7 +101,7 @@ PY
 
   step "predict"
   python src/lora_classifier.py predict --data-dir "$WORK/data" --checkpoint "$WORK/results/$RUN_NAME/checkpoint" \
-    --output-dir "$RUN/final_run" --parts dev "${FINAL_CSV[@]}" --results-repo "$RESULTS_REPO" \
+    --output-dir "$RUN/final_run" --parts ${PARTS-dev} "${FINAL_CSV[@]}" --results-repo "$RESULTS_REPO" \
     --run-name "$RUN_NAME/final_run" ${EXTRA_ARGS:-} 2>&1 | quiet | tee "$LOGS/predict.log"
 fi
 step "done"

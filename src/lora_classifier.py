@@ -265,10 +265,9 @@ def predict_parts(model, captured, heads, processor, named_rows, metric, argumen
             common.print_metrics(common.score_rows(metric, rows, answers_of(probabilities), {}))
         else:
             answers.update(answers_of(probabilities))
-    if answers:
-        write_submission(arguments.data_dir, directory / "submission.csv", answers)
-    if upload:
-        upload(directory)
+            write_submission(arguments.data_dir, directory / "submission.csv", answers)
+        if upload:  # after every part, so a later failure does not cost what is already predicted
+            upload(directory)
 
 
 def peak_memory():
@@ -412,9 +411,8 @@ def predict(arguments):
     heads = Heads(saved["heads"]["mean"].shape[1], saved["hidden"])
     heads.load_state_dict(saved["heads"])
     heads.to(device)
-    named_rows = {part: parts[part] for part in arguments.parts}
-    for csv_path in arguments.csv:
-        named_rows[csv_path.stem] = common.read_part(csv_path)
+    named_rows = {csv_path.stem: common.read_part(csv_path) for csv_path in arguments.csv}  # extra files first
+    named_rows.update({part: parts[part] for part in arguments.parts})
     predict_parts(model, captured, heads, processor, named_rows, metric, arguments, device, make_uploader(arguments))
 
 
@@ -424,7 +422,7 @@ def main():
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("runs/lora_classifier"))
     parser.add_argument("--checkpoint", type=Path, help="predict: the checkpoint folder of a training run")
-    parser.add_argument("--parts", nargs="+", default=["dev"], help="parts to predict; train always adds the holdout")
+    parser.add_argument("--parts", nargs="*", default=["dev"], help="parts to predict; train always adds the holdout")
     parser.add_argument("--csv", type=Path, nargs="*", default=[], help="predict: more csv files, such as final.csv")
     parser.add_argument("--model", default="swiss-ai/Apertus-v1.5-8B")
     parser.add_argument("--revision", default=None)
