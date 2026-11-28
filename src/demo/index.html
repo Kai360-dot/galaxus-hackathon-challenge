@@ -41,11 +41,15 @@
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 16px; padding: 16px; } }
   nav.cats { display: flex; flex-direction: column; }
   nav.cats .label { color: var(--muted); padding: 14px 0; border-bottom: 1px solid var(--line); }
+  nav.cats .tree { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  nav.cats .tree::after { content: ""; border: 5px solid transparent; border-left: 6px solid #000; margin-right: 4px; }
+  nav.cats .parent { padding: 14px 0 6px; }
+  nav.cats .sub { padding-left: 20px; }
   nav.cats button { text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); padding: 14px 0; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center; color: var(--fg); }
   nav.cats button[aria-pressed="true"] { font-weight: 700; }
   nav.cats .count { font-size: .8rem; background: var(--fg); color: #fff; border-radius: 999px; min-width: 22px; height: 22px; display: inline-grid; place-items: center; padding: 0 6px; }
-  @media (max-width: 900px) { nav.cats { flex-direction: row; overflow-x: auto; gap: 16px; } nav.cats .label { display: none; } nav.cats button { border: none; white-space: nowrap; } }
+  @media (max-width: 900px) { nav.cats { flex-direction: row; overflow-x: auto; gap: 16px; } nav.cats .label, nav.cats .tree, nav.cats .parent { display: none; } nav.cats button { border: none; white-space: nowrap; padding-left: 0; } }
 
   .crumbs { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 0 0 34px; font-size: 1.05rem; }
   .crumbs a { color: #1d6fb8; text-decoration: none; } .crumbs .sep { color: #999; } .crumbs .here { color: #444; }
@@ -165,9 +169,12 @@
       <span>What are you looking for?</span>
     </div>
     <div class="icons">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+      <button class="pill" type="button" data-add>Add photos</button>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.1"/></svg>
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/></svg>
-      <button class="pill" type="button" data-add>Add photos</button>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 1-4 4 1 4-2 1-4-4-5 5M9 15l-4-4 1-2 4 1 4-4 1-3z"/></svg>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.5 11h11L21 7H7"/><circle cx="9" cy="19.5" r="1.3"/><circle cx="17" cy="19.5" r="1.3"/></svg>
     </div>
   </header>
 
@@ -283,8 +290,8 @@ function flip(container, render) {
 function renderCats() {
   const nav = document.getElementById("cats");
   const done = state.items.filter((i) => i.status === "done").length;
-  nav.replaceChildren(el("div", "label", "Sort the photos by"), ...Object.keys(DIMENSIONS).map((d) => {
-    const b = el("button"); b.type = "button"; b.setAttribute("aria-pressed", d === dimension);
+  nav.replaceChildren(el("div", "tree", "Product range"), el("div", "tree", "Demo"), el("div", "parent", "Sort the photos by"), ...Object.keys(DIMENSIONS).map((d) => {
+    const b = el("button", "sub"); b.type = "button"; b.setAttribute("aria-pressed", d === dimension);
     b.append(el("span", "", NAMES[d]));
     if (d === dimension && done) b.append(el("span", "count", done));
     b.onclick = () => { dimension = d; renderCats(); renderColumns(); };
